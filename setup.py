@@ -19,5 +19,4 @@ setup(name='firexkit',
       packages=['firexkit', ],
       zip_safe=True,
       install_requires=[
-        "celery == 4.2.1",
       ],)
