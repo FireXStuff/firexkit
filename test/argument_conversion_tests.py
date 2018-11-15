@@ -32,8 +32,8 @@ class ArgConversionTests(unittest.TestCase):
         test_input_converter.pre_load_was_run = False
         with self.assertRaises(MissingConverterDependencyError):
             @test_input_converter.register('Nope')
-            def missing_dependent(kwargs):
-                return kwargs
+            def missing_dependent(_):
+                pass  # Should not reach here
             test_input_converter.convert(**{})
 
     def test_converter_dependency(self):
@@ -83,16 +83,16 @@ class ArgConversionTests(unittest.TestCase):
         test_input_converter = ConverterRegister()
         with self.assertRaises(CircularDependencyException):
             @test_input_converter.register('converter_seven')
-            def converter_six(kwargs):
-                kwargs['converter_six'] = True
+            def converter_six(_):
+                pass  # Should not reach here
 
             @test_input_converter.register('converter_eight')
-            def converter_seven(kwargs):
-                kwargs['converter_seven'] = True
+            def converter_seven(_):
+                pass  # Should not reach here
 
             @test_input_converter.register('converter_six')
-            def converter_eight(kwargs):
-                kwargs['converter_eight'] = True
+            def converter_eight(_):
+                pass  # Should not reach here
             test_input_converter.convert(**{})
 
         ################################
@@ -100,8 +100,8 @@ class ArgConversionTests(unittest.TestCase):
         test_input_converter = ConverterRegister()
         with self.assertRaises(MissingConverterDependencyError):
             @test_input_converter.register("this_is_not_valid")
-            def converter_unrecognised(kwargs):
-                kwargs['converter_unrecognised'] = True
+            def converter_unrecognised(_):
+                pass  # Should not reach here
             test_input_converter.convert(**{})
 
         #####################################################
@@ -127,9 +127,10 @@ class ArgConversionTests(unittest.TestCase):
             unit_test_obj.assertTrue('converter_eleven' in kwargs)
 
         test_input_converter.convert(**{})
+        test_input_converter.convert(pre_task=False, **{})
 
         #####################################################
-        # test re cannot be dependant on post
+        # test pre cannot be dependant on post
         test_input_converter = ConverterRegister()
 
         @test_input_converter.register(False)
@@ -144,8 +145,27 @@ class ArgConversionTests(unittest.TestCase):
         test_input_converter.convert(pre_task=False, **kw)
 
         @test_input_converter.register(False, "converter_fourteen")
-        def converter_fifteen(kwargs):
-            kwargs['converter_fifteen'] = True
+        def converter_fifteen(_):
+            pass  # Should not reach here
         with self.assertRaises(MissingConverterDependencyError):
-            kw = test_input_converter.convert(pre_task=True, **{})
-            test_input_converter.convert(pre_task=False, **kw)
+            test_input_converter.convert(pre_task=True, **{})
+
+    def test_exclude_indirect_args(self):
+        test_input_converter = ConverterRegister()
+
+        @test_input_converter.register(False)
+        def no_indirect(kwargs):
+            # indirect args should not be passed to converters
+            self.assertTrue("excluded" not in kwargs)
+            self.assertTrue("ignored" in kwargs)
+            self.assertTrue(kwargs["included"])
+
+        kw = test_input_converter.convert(pre_task=True,
+                                          **{
+                                              "excluded": "@included",
+                                              "included": True,
+                                              "ignored": "anything",
+                                          })
+        self.assertTrue("excluded" in kw)
+        self.assertTrue("included" in kw)
+        self.assertTrue("ignored" in kw)
