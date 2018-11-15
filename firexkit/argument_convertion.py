@@ -93,7 +93,7 @@ class ConverterRegister:
             cls._task_instances[task_short_name] = ConverterRegister()
         task_registry = cls._task_instances[task_short_name]
         if not len(args):
-            raise Exception("Task Registration requires an additional bool parameter")
+            raise Exception("Task Registration requires an additional bool parameter. False is pre-task")
         return task_registry.register(*args)
 
     def register(self, *args):
