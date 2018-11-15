@@ -114,8 +114,7 @@ class BagTests(unittest.TestCase):
                              'yep', '--missing', '@final', '--sync', '--no_email', '--cc_firex', 'False',
                              '--monitor_verbosity', 'none', '--flame_port', '54560', '--flame_timeout', '60',
                              '--disable_blaze', 'True', '--external',
-                             '/ws/mdelahou-ott/firex7/flow_tests/prio1/argument_validation_tests.py',
-                             '--original_program', '/ws/mdelahou-ott/firex7/firex_bin/firex']}
+                             '/ws/mdelahou-ott/firex7/flow_tests/prio1/argument_validation_tests.py']}
         args = (old_bog,)
         kwargs = {}
         bog = BagOfGoodies(sig, args, kwargs)
