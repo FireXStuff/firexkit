@@ -7,8 +7,7 @@ from firexkit.bag_of_goodies import BagOfGoodies
 class BagTests(unittest.TestCase):
     def test_first_unbound_microservice(self):
         # noinspection PyUnusedLocal
-        def func(one, two, three):
-            pass
+        def func(one, two, three): pass
         sig = inspect.signature(func)
 
         args = tuple()  # first task of chain gets empty tuple
@@ -40,8 +39,7 @@ class BagTests(unittest.TestCase):
     def test_first_with_explicit_args(self):
 
         # noinspection PyUnusedLocal
-        def a_simple_task(value, value2="asdf"):
-            pass
+        def a_simple_task(value, value2="asdf"): pass
         sig = inspect.signature(a_simple_task)
         args = ('nope',)
         kwargs = {}
@@ -57,8 +55,7 @@ class BagTests(unittest.TestCase):
 
     def test_chained_unbound_microservice(self):
         # noinspection PyUnusedLocal
-        def func(one, two, three=0):
-            pass
+        def func(one, two, three=0): pass
         sig = inspect.signature(func)
 
         old_bog = {'loglevel': 'debug',

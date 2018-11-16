@@ -32,8 +32,7 @@ class ArgConversionTests(unittest.TestCase):
         test_input_converter.pre_load_was_run = False
         with self.assertRaises(MissingConverterDependencyError):
             @test_input_converter.register('Nope')
-            def missing_dependent(_):
-                pass  # Should not reach here
+            def missing_dependent(_): pass  # Should not reach here
             test_input_converter.convert(**{})
 
     def test_converter_dependency(self):
@@ -83,16 +82,13 @@ class ArgConversionTests(unittest.TestCase):
         test_input_converter = ConverterRegister()
         with self.assertRaises(CircularDependencyException):
             @test_input_converter.register('converter_seven')
-            def converter_six(_):
-                pass  # Should not reach here
+            def converter_six(_): pass  # Should not reach here
 
             @test_input_converter.register('converter_eight')
-            def converter_seven(_):
-                pass  # Should not reach here
+            def converter_seven(_): pass  # Should not reach here
 
             @test_input_converter.register('converter_six')
-            def converter_eight(_):
-                pass  # Should not reach here
+            def converter_eight(_): pass  # Should not reach here
             test_input_converter.convert(**{})
 
         ################################
@@ -100,8 +96,7 @@ class ArgConversionTests(unittest.TestCase):
         test_input_converter = ConverterRegister()
         with self.assertRaises(MissingConverterDependencyError):
             @test_input_converter.register("this_is_not_valid")
-            def converter_unrecognised(_):
-                pass  # Should not reach here
+            def converter_unrecognised(_): pass  # Should not reach here
             test_input_converter.convert(**{})
 
         #####################################################
@@ -145,8 +140,8 @@ class ArgConversionTests(unittest.TestCase):
         test_input_converter.convert(pre_task=False, **kw)
 
         @test_input_converter.register(False, "converter_fourteen")
-        def converter_fifteen(_):
-            pass  # Should not reach here
+        def converter_fifteen(_): pass  # Should not reach here
+
         with self.assertRaises(MissingConverterDependencyError):
             test_input_converter.convert(pre_task=True, **{})
 
