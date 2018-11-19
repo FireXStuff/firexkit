@@ -93,7 +93,8 @@ class ConverterRegister:
             cls._task_instances[task_short_name] = ConverterRegister()
         task_registry = cls._task_instances[task_short_name]
         if not len(args):
-            raise Exception("Task Registration requires an additional bool parameter. False is pre-task")
+            raise ConverterRegistrationException("Task Registration requires an additional bool parameter. "
+                                                 "False is pre-task")
         return task_registry.register(*args)
 
     def register(self, *args):
@@ -106,7 +107,7 @@ class ConverterRegister:
             str: Dependencies. Any dependency of the current converter on the one in the string.
         """
         if len(args) is 0:
-            raise Exception("Registration requires at least one argument")
+            raise ConverterRegistrationException("Registration requires at least one argument")
 
         func = None
         dependencies = []
@@ -120,7 +121,8 @@ class ConverterRegister:
             elif isinstance(arg, bool):
                 run_post_task = arg
             else:
-                raise Exception("Converter incorrectly registered")
+                raise ConverterRegistrationException(
+                    "Converter incorrectly registered. Type %s not recognised" % str(type(arg)))
 
         return self._sub_register(func=func, dependencies=dependencies, run_post_task=run_post_task)
 
@@ -151,7 +153,7 @@ class ConverterRegister:
             func = func.__name__
 
         if func in self._pre_converters or func in self._post_converters:
-            raise Exception("Converter %s is already registered. Please define a unique name" % func)
+            raise ConverterRegistrationException("Converter %s is already registered. Please define a unique name" % func)
 
     @classmethod
     def get_register(cls, task_name):
@@ -164,4 +166,8 @@ class MissingConverterDependencyError(Exception):
 
 
 class CircularDependencyException(Exception):
+    pass
+
+
+class ConverterRegistrationException(Exception):
     pass

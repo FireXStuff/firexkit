@@ -1,6 +1,10 @@
 
 import unittest
-from firexkit.argument_convertion import ConverterRegister, CircularDependencyException, MissingConverterDependencyError
+from celery import Celery
+
+from firexkit.argument_convertion import ConverterRegister, CircularDependencyException, \
+    MissingConverterDependencyError, ConverterRegistrationException
+from firexkit.task import FireXTask
 
 
 class ArgConversionTests(unittest.TestCase):
@@ -150,6 +154,12 @@ class ArgConversionTests(unittest.TestCase):
         with self.assertRaises(MissingConverterDependencyError):
             test_input_converter.convert(pre_task=True, **{})
 
+        with self.assertRaises(CircularDependencyException):
+            @test_input_converter.register("converter_sixteen")
+            def converter_sixteen(_):
+                pass  # Should not reach here
+            test_input_converter.convert(pre_task=True, **{})
+
     def test_exclude_indirect_args(self):
         test_input_converter = ConverterRegister()
 
@@ -169,3 +179,45 @@ class ArgConversionTests(unittest.TestCase):
         self.assertTrue("excluded" in kw)
         self.assertTrue("included" in kw)
         self.assertTrue("ignored" in kw)
+
+    def test_failing_converters(self):
+
+        test_app = Celery()
+
+        @test_app.task(base=FireXTask)
+        def a_task():
+            pass  # Should not reach here
+
+        with self.assertRaises(ConverterRegistrationException):
+            # no Function provided
+            ConverterRegister.register_for_task(a_task)
+
+        test_input_converter = ConverterRegister()
+        with self.assertRaises(ConverterRegistrationException):
+            # no arguments provided
+            test_input_converter.register()
+
+        test_input_converter = ConverterRegister()
+        with self.assertRaises(ConverterRegistrationException):
+            @test_input_converter.register(True, {})  # bad type
+            def go_boom(_):
+                    pass  # Should not reach here
+
+        class TestException(Exception):
+            pass
+
+        @test_input_converter.register
+        def go_boom(_):
+                raise TestException()
+
+        with self.assertRaises(TestException):
+            test_input_converter.convert()
+
+        with self.assertRaises(ConverterRegistrationException):
+            # register the same thing a second time
+            @test_input_converter.register
+            def go_boom(_):
+                    raise TestException()
+
+        with self.assertRaises(ConverterRegistrationException):
+            test_input_converter.check_not_registered("go_boom")
