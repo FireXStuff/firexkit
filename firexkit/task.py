@@ -1,4 +1,5 @@
 import inspect
+from types import MethodType
 from abc import abstractmethod
 from celery.app.task import Task
 
@@ -8,6 +9,8 @@ from firexkit.argument_convertion import ConverterRegister
 
 class FireXTask(Task):
     def __init__(self):
+        self.undecorated = self._undecorate()
+        self.return_keys = getattr(self.undecorated, "_return_keys", tuple())
         super(FireXTask, self).__init__()
 
     def run(self, *args, **kwargs):
@@ -61,3 +64,15 @@ class FireXTask(Task):
         self.post_task_run(result, bog)
 
         return bog.get_bag()
+
+    def _undecorate(self):
+        undecorated_func = self.run
+        while True:
+            try:
+                undecorated_func = getattr(undecorated_func, '__wrapped__')
+            except AttributeError:
+                break
+        if not inspect.ismethod(self.run) or inspect.ismethod(undecorated_func):
+            return undecorated_func
+        else:
+            return MethodType(undecorated_func, self)

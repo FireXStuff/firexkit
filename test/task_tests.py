@@ -20,6 +20,7 @@ class TaskTests(unittest.TestCase):
 
             test_obj = TestTask()
             self.assertIsNotNone(test_obj, "Task object not instantiated")
+            self.assertTrue(callable(test_obj.undecorated))
 
             test_obj.request_stack = LocalStack()  # simulate binding
             test_obj()
@@ -43,6 +44,7 @@ class TaskTests(unittest.TestCase):
 
             test_obj = TestTask()
             self.assertIsNotNone(test_obj, "Task object not instantiated")
+            self.assertTrue(callable(test_obj.undecorated))
 
             test_obj.request_stack = LocalStack()  # simulate binding
             test_obj()
@@ -65,7 +67,7 @@ class TaskTests(unittest.TestCase):
 
         # noinspection PyAbstractClass
         class TestTask(FireXTask):
-            name = __module__ + "." + self.__class__.__name__ + "." + "TestClass"
+            name = self.__module__ + "." + self.__class__.__name__ + "." + "TestClass"
             pre_ran = False
             post_ran = False
 
