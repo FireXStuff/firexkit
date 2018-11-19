@@ -8,7 +8,8 @@ class BagTests(unittest.TestCase):
     def test_first_unbound_microservice(self):
         # noinspection PyUnusedLocal
         def func(one, two, three):
-            pass
+            # Should not reach here. We only want the signature
+            pass  # pragma: no cover
         sig = inspect.signature(func)
 
         args = tuple()  # first task of chain gets empty tuple
@@ -41,7 +42,8 @@ class BagTests(unittest.TestCase):
 
         # noinspection PyUnusedLocal
         def a_simple_task(value, value2="asdf"):
-            pass
+            # Should not reach here. We only want the signature
+            pass  # pragma: no cover
         sig = inspect.signature(a_simple_task)
         args = ('nope',)
         kwargs = {}
@@ -58,7 +60,8 @@ class BagTests(unittest.TestCase):
     def test_chained_unbound_microservice(self):
         # noinspection PyUnusedLocal
         def func(one, two, three=0):
-            pass
+            # Should not reach here. We only want the signature
+            pass  # pragma: no cover
         sig = inspect.signature(func)
 
         old_bog = {'loglevel': 'debug',
@@ -165,7 +168,8 @@ class BagTests(unittest.TestCase):
 
         # noinspection PyUnusedLocal
         def from_another_test(expected_module):
-            pass
+            # Should not reach here. We only want the signature
+            pass  # pragma: no cover
         sig = inspect.signature(from_another_test)
         bog = BagOfGoodies(sig, args, kwargs)
 

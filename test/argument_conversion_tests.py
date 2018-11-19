@@ -37,7 +37,8 @@ class ArgConversionTests(unittest.TestCase):
         with self.assertRaises(MissingConverterDependencyError):
             @test_input_converter.register('Nope')
             def missing_dependent(_):
-                pass  # Should not reach here
+                # Should not reach here
+                pass  # pragma: no cover
             test_input_converter.convert(**{})
 
     def test_converter_dependency(self):
@@ -88,15 +89,18 @@ class ArgConversionTests(unittest.TestCase):
         with self.assertRaises(CircularDependencyException):
             @test_input_converter.register('converter_seven')
             def converter_six(_):
-                pass  # Should not reach here
+                # Should not reach here
+                pass  # pragma: no cover
 
             @test_input_converter.register('converter_eight')
             def converter_seven(_):
-                pass  # Should not reach here
+                # Should not reach here
+                pass  # pragma: no cover
 
             @test_input_converter.register('converter_six')
             def converter_eight(_):
-                pass  # Should not reach here
+                # Should not reach here
+                pass  # pragma: no cover
             test_input_converter.convert(**{})
 
         ################################
@@ -105,7 +109,7 @@ class ArgConversionTests(unittest.TestCase):
         with self.assertRaises(MissingConverterDependencyError):
             @test_input_converter.register("this_is_not_valid")
             def converter_unrecognised(_):
-                pass  # Should not reach here
+                pass  # Should not reach here # pragma: no cover
             test_input_converter.convert(**{})
 
         #####################################################
@@ -150,14 +154,16 @@ class ArgConversionTests(unittest.TestCase):
 
         @test_input_converter.register(False, "converter_fourteen")
         def converter_fifteen(_):
-            pass  # Should not reach here
+                # Should not reach here
+                pass  # pragma: no cover
         with self.assertRaises(MissingConverterDependencyError):
             test_input_converter.convert(pre_task=True, **{})
 
         with self.assertRaises(CircularDependencyException):
             @test_input_converter.register("converter_sixteen")
             def converter_sixteen(_):
-                pass  # Should not reach here
+                # Should not reach here
+                pass  # pragma: no cover
             test_input_converter.convert(pre_task=True, **{})
 
     def test_exclude_indirect_args(self):
@@ -186,7 +192,8 @@ class ArgConversionTests(unittest.TestCase):
 
         @test_app.task(base=FireXTask)
         def a_task():
-            pass  # Should not reach here
+                # Should not reach here
+                pass  # pragma: no cover
 
         with self.assertRaises(ConverterRegistrationException):
             # no Function provided
@@ -201,7 +208,8 @@ class ArgConversionTests(unittest.TestCase):
         with self.assertRaises(ConverterRegistrationException):
             @test_input_converter.register(True, {})  # bad type
             def go_boom(_):
-                    pass  # Should not reach here
+                # Should not reach here
+                pass  # pragma: no cover
 
         class TestException(Exception):
             pass
@@ -217,7 +225,8 @@ class ArgConversionTests(unittest.TestCase):
             # register the same thing a second time
             @test_input_converter.register
             def go_boom(_):
-                    raise TestException()
+                # Should not reach here
+                pass  # pragma: no cover
 
         with self.assertRaises(ConverterRegistrationException):
             test_input_converter.check_not_registered("go_boom")
