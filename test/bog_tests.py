@@ -13,17 +13,17 @@ class BagTests(unittest.TestCase):
         sig = inspect.signature(func)
 
         args = tuple()  # first task of chain gets empty tuple
-        kwargs = {'loglevel': 'debug',
+        kwargs = {'log_level': 'debug',
                   'chain': 'noop',
-                  'submission_dir': '/ws/mdelahou-ott/firex7',
+                  'submission_dir': '~',
                   'plugins': '',
-                  'argv': ['/ws/mdelahou-ott/firex7/firex.py', 'submit', '--chain', 'noop', '--no_email', '--sync'],
+                  'argv': ['~/firex7/firex.py', 'submit', '--chain', 'noop', '--no_email', '--sync'],
                   'unconverted_chain_args': {'disable_blaze': True},
                   'concurrent_runs_limit': 6,
                   'copy_on_task_failure': False,
                   'sync': True,
                   'no_email': True,
-                  'one': 'mdelahou'}
+                  'one': 'me'}
         bog = BagOfGoodies(sig, args, kwargs)
 
         goodies = bog.get_bag()
@@ -41,7 +41,7 @@ class BagTests(unittest.TestCase):
     def test_first_with_explicit_args(self):
 
         # noinspection PyUnusedLocal
-        def a_simple_task(value, value2="asdf"):
+        def a_simple_task(value, value2="unimportant"):
             # Should not reach here. We only want the signature
             pass  # pragma: no cover
         sig = inspect.signature(a_simple_task)
@@ -64,17 +64,17 @@ class BagTests(unittest.TestCase):
             pass  # pragma: no cover
         sig = inspect.signature(func)
 
-        old_bog = {'loglevel': 'debug',
+        old_bog = {'log_level': 'debug',
                    'chain': 'noop',
-                   'submission_dir': '/ws/mdelahou-ott/firex7',
+                   'submission_dir': '~',
                    'plugins': '',
-                   'argv': ['/ws/mdelahou-ott/firex7/firex.py', 'submit', '--chain', 'noop', '--no_email', '--sync'],
+                   'argv': ['~/firex7/firex.py', 'submit', '--chain', 'noop', '--no_email', '--sync'],
                    'unconverted_chain_args': {'disable_blaze': True},
                    'concurrent_runs_limit': 6,
                    'copy_on_task_failure': False,
                    'sync': True,
                    'no_email': True,
-                   'one': 'mdelahou'}
+                   'one': 'me'}
         args = (old_bog,)
         kwargs = {}
         bog = BagOfGoodies(sig, args, kwargs)
@@ -100,24 +100,24 @@ class BagTests(unittest.TestCase):
 
         old_bog = {
                     'concurrent_runs_limit': 6,
-                    'cc_firex': False, 'loglevel': 'debug', 'sync': True, 'start': 'yep', 'group': 'mdelahou',
-                    'plugins': '/ws/mdelahou-ott/firex7/flow_tests/prio1/argument_validation_tests.py',
+                    'cc_firex': False, 'log_level': 'debug', 'sync': True, 'start': 'yep', 'group': 'me',
+                    'plugins': '~/firex7/flow_tests/argument_validation_tests.py',
                     'no_email': True,
                     'final': 'pass',   # <-- This is what we are testing
-                    'submission_dir': '/ws/mdelahou-ott/firex7',
+                    'submission_dir': '~/firex7',
                     'unconverted_chain_args': {'missing': '@final', 'cc_firex': 'False', 'start': 'yep',
                                                'disable_blaze': True,
-                                               'original_program': '/ws/mdelahou-ott/firex7/firex_bin/firex',
-                                               'plugins': '/ws/mdelahou-ott/firex7/flow_tests/prio1/'
+                                               'original_program': '~/firex7/firex_bin/firex',
+                                               'plugins': '~/firex7/flow_tests/'
                                                           'argument_validation_tests.py'},
                     'copy_on_task_failure': False, 'chain': 'beginning,ending',
                     'missing': '@final',  # <-- This is what we are testing
-                    'original_program': '/ws/mdelahou-ott/firex7/firex_bin/firex',
-                    'argv': ['/ws/mdelahou-ott/firex7/firex.py', 'submit', '--chain', 'beginning,ending', '--start',
+                    'original_program': '~/firex7/firex_bin/firex',
+                    'argv': ['~/firex7/firex.py', 'submit', '--chain', 'beginning,ending', '--start',
                              'yep', '--missing', '@final', '--sync', '--no_email', '--cc_firex', 'False',
                              '--monitor_verbosity', 'none', '--flame_port', '54560', '--flame_timeout', '60',
                              '--disable_blaze', 'True', '--external',
-                             '/ws/mdelahou-ott/firex7/flow_tests/prio1/argument_validation_tests.py']}
+                             '~/firex7/flow_tests/argument_validation_tests.py']}
         args = (old_bog,)
         kwargs = {}
         bog = BagOfGoodies(sig, args, kwargs)
@@ -141,10 +141,10 @@ class BagTests(unittest.TestCase):
 
     def test_indirect_from_default(self):
         def fun(arg_zero,
-                arg_one="@dont_use",
+                arg_one="@do_not_use",
                 arg_two="@first_value",
                 arg_three="@second_value",
-                arg_four="@dont_use"):
+                arg_four="@do_not_use"):
             self.assertEqual('success', arg_zero)
             self.assertEqual('success', arg_one)
             self.assertEqual('success', arg_two)
@@ -155,7 +155,7 @@ class BagTests(unittest.TestCase):
         old_bog = {'first_value': 'success'}
         args = (old_bog, "@first_value", "success")
         kwargs = {"second_value": 'success',
-                  "dont_use": "failure",
+                  "do_not_use": "failure",
                   "arg_four": "success"}
         bog = BagOfGoodies(sig, args, kwargs)
         a, k = bog.split_for_signature()
