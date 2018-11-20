@@ -153,7 +153,8 @@ class ConverterRegister:
             func = func.__name__
 
         if func in self._pre_converters or func in self._post_converters:
-            raise ConverterRegistrationException("Converter %s is already registered. Please define a unique name" % func)
+            raise ConverterRegistrationException("Converter %s is already registered. "
+                                                 "Please define a unique name" % func)
 
     @classmethod
     def get_register(cls, task_name):
