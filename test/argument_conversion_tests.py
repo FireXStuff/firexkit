@@ -159,6 +159,9 @@ class ArgConversionTests(unittest.TestCase):
         with self.assertRaises(MissingConverterDependencyError):
             test_input_converter.convert(pre_task=True, **{})
 
+        #####################################################
+        # test pre cannot be dependant on post
+        test_input_converter = ConverterRegister()
         with self.assertRaises(CircularDependencyException):
             @test_input_converter.register("converter_sixteen")
             def converter_sixteen(_):
