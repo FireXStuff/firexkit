@@ -4,7 +4,8 @@ from celery.app.task import Task
 from celery.canvas import chain
 from collections import namedtuple
 from firexkit.task import FireXTask, get_attr_unwrapped
-from firexkit.chain import ReturnsCodingException, returns, verify_chain_arguments, InvalidChainArgsException
+from firexkit.chain import ReturnsCodingException, returns, verify_chain_arguments, InvalidChainArgsException, \
+    InjectArgs
 from functools import wraps
 
 
@@ -202,7 +203,7 @@ class ChainVerificationTests(unittest.TestCase):
 
         @test_app.task(base=FireXTask)
         @returns("stuff")
-        def task1a():
+        def task1_with_return():
             pass  # pragma: no cover
 
         # noinspection PyUnusedLocal
@@ -210,27 +211,27 @@ class ChainVerificationTests(unittest.TestCase):
         def task2needs(thing="@stuff"):
             pass  # pragma: no cover
 
-        c = chain(task1a.s(), task2needs.s())
+        c = chain(task1_with_return.s(), task2needs.s())
         verify_chain_arguments(c)
 
         @test_app.task(base=FireXTask)
-        def task1b():
+        def task1_no_return():
             pass  # pragma: no cover
 
-        c = chain(task1b.s(stuff="yep"), task2needs.s())
+        c = chain(task1_no_return.s(stuff="yep"), task2needs.s())
         verify_chain_arguments(c)
 
         # todo: add this check to the validation
         # with self.assertRaises(InvalidChainArgsException):
-        #     c = chain(task1b.s(), task2needs.s())
+        #     c = chain(task1_no_return.s(), task2needs.s())
         #     verify_chain_arguments(c)
 
         with self.assertRaises(InvalidChainArgsException):
-            c = chain(task1b.s(thing="@stuff"), task2needs.s())
+            c = chain(task1_no_return.s(thing="@stuff"), task2needs.s())
             verify_chain_arguments(c)
 
         with self.assertRaises(InvalidChainArgsException):
-            c = chain(task1b.s(), task2needs.s(thing="@stuff"))
+            c = chain(task1_no_return.s(), task2needs.s(thing="@stuff"))
             verify_chain_arguments(c)
 
     def test_arg_properties(self):
@@ -270,3 +271,70 @@ class TaskUtilTests(unittest.TestCase):
             def fun():
                 pass  # pragma: no cover
             self.assertEqual(get_attr_unwrapped(fun, "_out"), {"stuff"})
+
+
+class InjectArgsTest(unittest.TestCase):
+    def test_inject_irrelevant(self):
+        test_app = Celery()
+
+        @test_app.task(base=FireXTask)
+        def injected_task1():
+            pass  # pragma: no cover
+
+        # inject unneeded things
+        with self.subTest("Inject nothing"):
+            kwargs = {}
+            c = InjectArgs(**kwargs)
+            c = c | injected_task1.s()
+            verify_chain_arguments(c)
+
+        with self.subTest("Inject nothing useful"):
+            kwargs = {"random": "thing"}
+            c = InjectArgs(**kwargs)
+            c = c | injected_task1.s()
+            verify_chain_arguments(c)
+
+    def test_inject_necessary(self):
+        test_app = Celery()
+
+        # noinspection PyUnusedLocal
+        @test_app.task(base=FireXTask)
+        def injected_task2(needed):
+            pass  # pragma: no cover
+
+        with self.subTest("Inject directly"):
+            c = InjectArgs(needed='stuff', **{})
+            c = c | injected_task2.s()
+            verify_chain_arguments(c)
+
+        kwargs = {"needed": "thing"}
+        with self.subTest("Inject with kwargs"):
+            c = InjectArgs(not_needed='stuff', **kwargs)
+            c = c | injected_task2.s()
+            verify_chain_arguments(c)
+
+        @test_app.task(base=FireXTask)
+        def injected_task3():
+            pass  # pragma: no cover
+
+        with self.subTest("Injected chained with another"):
+            c = InjectArgs(**kwargs)
+            c |= injected_task3.s()
+            c = chain(c, injected_task2.s())
+            verify_chain_arguments(c)
+
+        with self.subTest("Inject into existing chain"):
+            c = InjectArgs(**kwargs)
+            n_c = injected_task3.s() | injected_task2.s()
+            c = c | n_c
+            verify_chain_arguments(c)
+
+        with self.subTest("Inject into existing chain"):
+            c = InjectArgs(**kwargs)
+            c = c | (injected_task3.s() | injected_task2.s())
+            verify_chain_arguments(c)
+
+        with self.subTest("Inject into Another inject"):
+            c = InjectArgs(**kwargs)
+            c |= InjectArgs(sleep=None)
+            c |= injected_task2.s()

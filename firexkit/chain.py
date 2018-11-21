@@ -1,9 +1,10 @@
-import inspect
+from inspect import signature, getfullargspec
 from firexkit.bag_of_goodies import BagOfGoodies
 from firexkit.task import parse_signature, FireXTask, get_attr_unwrapped, undecorate
 from functools import wraps
-from celery.canvas import chain
+from celery.canvas import chain, Signature
 from celery.local import PromiseProxy
+from typing import Union
 
 
 def returns(*args):
@@ -57,18 +58,51 @@ class ReturnsCodingException(Exception):
     pass
 
 
-def verify_chain_arguments(chain_of_tasks: chain):
+class InjectArgs(object):
+    def __init__(self, **kwargs):
+        self.injectArgs = kwargs
+
+    def __or__(self, other)->Union[chain, Signature]:
+        if isinstance(other, InjectArgs):
+            self.injectArgs.update(other.injectArgs)
+        else:
+            # chains and signatures are both handled by this
+            _inject_args_into_signature(other, **self.injectArgs)
+        return other
+
+    def __ior__(self, other: Union[chain, Signature])->Union[chain, Signature]:
+        return self | other
+
+
+def _inject_args_into_signature(sig, **kwargs):
+    try:
+        # This might be a chain
+        sig.tasks[0].kwargs.update(**kwargs)
+    except AttributeError:
+        # This might be a Task
+        sig.kwargs.update(**kwargs)
+
+
+Signature.injectArgs = _inject_args_into_signature
+
+
+def verify_chain_arguments(chain_of_tasks: Union[chain, Signature]):
     """
     Verifies that the chain is not missing any parameters. Asserts if any parameters are missing, or if a
     reference parameter (@something) has not provider
     """
+    try:
+        tasks = chain_of_tasks.tasks
+    except AttributeError:
+        tasks = [chain_of_tasks]
+
     missing = {}
     previous = set()
     ref_args = {}
     undefined_indirect = {}
-    for task in chain_of_tasks.tasks:
+    for task in tasks:
         task_obj = chain_of_tasks.app.tasks[task.task]
-        partial_bound = set(inspect.signature(task_obj.run).bind_partial(*task.args).arguments.keys())
+        partial_bound = set(signature(task_obj.run).bind_partial(*task.args).arguments.keys())
         kwargs_keys = set(task.kwargs.keys()) | {'args', 'kwargs'}
 
         if isinstance(task_obj, FireXTask):
@@ -88,7 +122,7 @@ def verify_chain_arguments(chain_of_tasks: chain):
             pass
 
         # check for validity of reference values (@ arguments) that are consumed by this microservice
-        necessary_args = inspect.getfullargspec(undecorate(task_obj)).args
+        necessary_args = getfullargspec(undecorate(task_obj)).args
         new_ref = {k: v[1:] for k, v in task.kwargs.items() if
                    hasattr(v, 'startswith') and v.startswith(BagOfGoodies.INDIRECT_ARG_CHAR)}
         ref_args.update(new_ref)
