@@ -67,7 +67,7 @@ def verify_chain_arguments(chain_of_tasks: chain):
     ref_args = {}
     undefined_indirect = {}
     for task in chain_of_tasks.tasks:
-        task_obj = task.app.tasks[task.task]
+        task_obj = chain_of_tasks.app.tasks[task.task]
         partial_bound = set(inspect.signature(task_obj.run).bind_partial(*task.args).arguments.keys())
         kwargs_keys = set(task.kwargs.keys()) | {'args', 'kwargs'}
 
@@ -106,7 +106,7 @@ def verify_chain_arguments(chain_of_tasks: chain):
     return True
 
 
-class InvalidChainArgsException(BaseException):
+class InvalidChainArgsException(Exception):
     def __init__(self, msg, wrong_args):
         super(InvalidChainArgsException, self).__init__(msg)
         self.wrong_args = wrong_args
