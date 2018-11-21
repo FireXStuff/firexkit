@@ -248,6 +248,42 @@ class ChainVerificationTests(unittest.TestCase):
         self.assertEqual(a_task.return_keys, ('take_this',))
         self.assertEqual(a_task.optional_args, ['optional'])  # repeat
 
+    def test_chain_assembly_validation(self):
+        test_app = Celery()
+
+        # noinspection PyUnusedLocal
+        @test_app.task(base=FireXTask)
+        @returns("final")
+        def beginning(start):
+            return "pass"  # pragma: no cover
+
+        @test_app.task(base=FireXTask)
+        @returns("mildly_amusing")
+        def middle_task(very_important):
+            assert very_important  # pragma: no cover
+
+        @test_app.task(base=FireXTask)
+        @returns("finished")
+        def ending(final, missing):
+            assert final, missing  # pragma: no cover
+
+        with self.assertRaises(InvalidChainArgsException):
+            c = beginning.s(start="something") | middle_task.s(very_important="oh_it_is") | ending.s()
+            verify_chain_arguments(c)
+
+        c = beginning.s(start="something") | middle_task.s(very_important="oh_it_is") | ending.s(missing="not_missing")
+        verify_chain_arguments(c)
+        self.assertIsNotNone(chain)
+
+        with self.assertRaises(InvalidChainArgsException):
+            c2 = beginning.s(start="something") | middle_task.s(very_important="@not_there") | ending.s(
+                missing="not missing")
+            verify_chain_arguments(c2)
+
+        c2 = beginning.s(start="something") | middle_task.s(very_important="@final") | ending.s(missing="not missing")
+        verify_chain_arguments(c2)
+        self.assertIsNotNone(c2)
+
 
 class TaskUtilTests(unittest.TestCase):
     def test_get_attr_unwrapped(self):

@@ -1,6 +1,9 @@
 
 import unittest
+from celery import Celery
+
 from firexkit.bag_of_goodies import BagOfGoodies
+from firexkit.chain import returns
 from firexkit.task import FireXTask
 
 
@@ -87,3 +90,30 @@ class TaskTests(unittest.TestCase):
         test_obj()
         self.assertTrue(TestTask.pre_ran, "pre_task_run() was not called")
         self.assertTrue(TestTask.post_ran, "post_task_run() was not called")
+
+    def test_undecorated(self):
+        test_app = Celery()
+
+        @test_app.task(base=FireXTask, bind=True)
+        def a(self, something):
+            return something
+
+        @test_app.task(base=FireXTask)
+        def b(something):
+            return something
+
+        @test_app.task(base=FireXTask, bind=True)
+        @returns('something')
+        def c(self, something):
+            return something
+
+        @test_app.task(base=FireXTask)
+        @returns('something')
+        def d(something):
+            return something
+
+        for micro in [a, b, c, d]:
+            with self.subTest(micro):
+                the_sent_something = "something"
+                result = micro.undecorated(the_sent_something)
+                self.assertEqual(the_sent_something, result)
