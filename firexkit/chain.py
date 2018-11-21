@@ -53,7 +53,7 @@ def returns(*args):
     return decorator
 
 
-class ReturnsCodingException(BaseException):
+class ReturnsCodingException(Exception):
     pass
 
 
@@ -107,6 +107,6 @@ def verify_chain_arguments(chain_of_tasks: chain):
 
 
 class InvalidChainArgsException(Exception):
-    def __init__(self, msg, wrong_args):
+    def __init__(self, msg, wrong_args: dict=None):
         super(InvalidChainArgsException, self).__init__(msg)
-        self.wrong_args = wrong_args
+        self.wrong_args = wrong_args if wrong_args else {}
