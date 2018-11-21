@@ -9,9 +9,12 @@ from firexkit.argument_convertion import ConverterRegister
 
 class FireXTask(Task):
     def __init__(self):
-        self.undecorated = self._undecorate()
+        self.undecorated = undecorate(self)
         self.return_keys = getattr(self.undecorated, "_return_keys", tuple())
         super(FireXTask, self).__init__()
+
+        self._in_required = None
+        self._in_optional = None
 
     def run(self, *args, **kwargs):
         """The body of the task executed by workers."""
@@ -65,14 +68,50 @@ class FireXTask(Task):
 
         return bog.get_bag()
 
-    def _undecorate(self):
-        undecorated_func = self.run
-        while True:
-            try:
-                undecorated_func = getattr(undecorated_func, '__wrapped__')
-            except AttributeError:
-                break
-        if not inspect.ismethod(self.run) or inspect.ismethod(undecorated_func):
-            return undecorated_func
+    @property
+    def required_args(self) -> list:
+        if self._in_required is None:
+            self._in_required, self._in_optional = parse_signature(self)
+        return list(self._in_required)
+
+    @property
+    def optional_args(self) -> list:
+        if self._in_required is None:
+            self._in_required, self._in_optional = parse_signature(self)
+        return list(self._in_optional)
+
+
+def undecorate(task):
+    undecorated_func = task.run
+    while True:
+        try:
+            undecorated_func = getattr(undecorated_func, '__wrapped__')
+        except AttributeError:
+            break
+    if not inspect.ismethod(task.run) or inspect.ismethod(undecorated_func):
+        return undecorated_func
+    else:
+        return MethodType(undecorated_func, task)
+
+
+def parse_signature(task: Task)->():
+    required = set()
+    optional = {}
+    for k, v in inspect.signature(task.run).parameters.items():
+        default_value = v.default
+        if default_value is not inspect.Signature.empty:
+            optional[k] = default_value
         else:
-            return MethodType(undecorated_func, self)
+            required.add(k)
+    return required, optional
+
+
+def get_attr_unwrapped(fun: callable, attr_name, *default_value):
+    while fun:
+        try:
+            return getattr(fun, attr_name)
+        except AttributeError:
+            fun = getattr(fun, '__wrapped__', None)
+    if default_value:
+        return default_value[0]
+    raise AttributeError(attr_name)

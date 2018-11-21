@@ -1,8 +1,10 @@
 import unittest
 from celery import Celery
+from celery.app.task import Task
+from celery.canvas import chain
 from collections import namedtuple
-from firexkit.task import FireXTask
-from firexkit.chain import ReturnsCodingException, returns
+from firexkit.task import FireXTask, get_attr_unwrapped
+from firexkit.chain import ReturnsCodingException, returns, verify_chain_arguments, InvalidChainArgsException
 from functools import wraps
 
 
@@ -126,3 +128,145 @@ class ReturnsTests(unittest.TestCase):
         self.assertEqual(1, ret["named_t"].thing1)
         # noinspection PyTypeChecker
         self.assertEqual("two", ret["named_t"].thing2)
+
+
+class ChainVerificationTests(unittest.TestCase):
+
+    def test_interoperability_with_regular_celery_tasks(self):
+        test_app = Celery()
+
+        @test_app.task(base=Task)
+        @returns("stuff")
+        def task1a():
+            return "the_stuff"  # pragma: no cover
+
+        @test_app.task(base=Task)
+        def task2a(stuff):
+            assert stuff  # pragma: no cover
+
+        @test_app.task(base=FireXTask)
+        @returns("stuff")
+        def task1b():
+            return "the_stuff"  # pragma: no cover
+
+        @test_app.task(base=FireXTask)
+        def task2b(stuff):
+            assert stuff  # pragma: no cover
+
+        with self.subTest("Celery to Celery"):
+            c = chain(task1a.s(), task2a.s())
+            verify_chain_arguments(c)
+
+        with self.subTest("FireX to Celery"):
+            c = chain(task1b.s(), task2b.s())
+            verify_chain_arguments(c)
+
+        with self.subTest("Celery to FireX"):
+            c = chain(task1a.s(), task2b.s())
+            verify_chain_arguments(c)
+
+    def test_detect_missing(self):
+        test_app = Celery()
+
+        @test_app.task(base=FireXTask)
+        def task1():
+            pass  # pragma: no cover
+
+        @test_app.task(base=FireXTask)
+        def task2raise(stuff):
+            assert stuff  # pragma: no cover
+
+        @test_app.task(base=FireXTask)
+        def task2ok(stuff=None):
+            assert stuff  # pragma: no cover
+
+        # fails if it is missing something
+        c = chain(task1.s(), task2raise.s())
+        with self.assertRaises(InvalidChainArgsException):
+            verify_chain_arguments(c)
+
+        # same result a second time
+        with self.assertRaises(InvalidChainArgsException):
+            verify_chain_arguments(c)
+
+        # pass if it gets what it needs
+        c = chain(task1.s(stuff="yes"), task2raise.s())
+        verify_chain_arguments(c)
+
+        # default arguments are sufficient
+        c = chain(task1.s(), task2ok.s())
+        verify_chain_arguments(c)
+
+    def test_indirect(self):
+        test_app = Celery()
+
+        @test_app.task(base=FireXTask)
+        @returns("stuff")
+        def task1a():
+            pass  # pragma: no cover
+
+        # noinspection PyUnusedLocal
+        @test_app.task(base=FireXTask)
+        def task2needs(thing="@stuff"):
+            pass  # pragma: no cover
+
+        c = chain(task1a.s(), task2needs.s())
+        verify_chain_arguments(c)
+
+        @test_app.task(base=FireXTask)
+        def task1b():
+            pass  # pragma: no cover
+
+        c = chain(task1b.s(stuff="yep"), task2needs.s())
+        verify_chain_arguments(c)
+
+        # todo: add this check to the validation
+        # with self.assertRaises(InvalidChainArgsException):
+        #     c = chain(task1b.s(), task2needs.s())
+        #     verify_chain_arguments(c)
+
+        with self.assertRaises(InvalidChainArgsException):
+            c = chain(task1b.s(thing="@stuff"), task2needs.s())
+            verify_chain_arguments(c)
+
+        with self.assertRaises(InvalidChainArgsException):
+            c = chain(task1b.s(), task2needs.s(thing="@stuff"))
+            verify_chain_arguments(c)
+
+    def test_arg_properties(self):
+        test_app = Celery()
+
+        # noinspection PyUnusedLocal
+        @test_app.task(base=FireXTask)
+        @returns("take_this")
+        def a_task(required, optional="yup"):
+            pass  # pragma: no cover
+
+        self.assertEqual(a_task.optional_args, ['optional'])
+        self.assertEqual(a_task.required_args, ['required'])
+        self.assertEqual(a_task.return_keys, ('take_this',))
+        self.assertEqual(a_task.optional_args, ['optional'])  # repeat
+
+
+class TaskUtilTests(unittest.TestCase):
+    def test_get_attr_unwrapped(self):
+        with self.subTest("Raise error"):
+            test_app = Celery()
+
+            @test_app.task(base=Task)
+            def fun():
+                pass  # pragma: no cover
+            with self.assertRaises(AttributeError):
+                get_attr_unwrapped(fun, "_out")
+
+            self.assertEqual(get_attr_unwrapped(fun, "_out", "yes"), "yes")
+            self.assertEqual(get_attr_unwrapped(fun, "_out", None), None)  # special case
+
+        with self.subTest("Find attribute"):
+            test_app = Celery()
+
+            @test_app.task(base=Task)
+            @returns("stuff")
+            def fun():
+                pass  # pragma: no cover
+            self.assertEqual(get_attr_unwrapped(fun, "_out"), {"stuff"})
