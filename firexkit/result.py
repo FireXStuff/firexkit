@@ -1,0 +1,117 @@
+import time
+from collections import namedtuple
+
+from celery.result import AsyncResult
+from celery.utils.log import get_task_logger
+from firexkit.revoke import RevokedRequests
+
+logger = get_task_logger(__name__)
+
+
+def get_task_name_from_result(result):
+    backend = result.app.backend
+    name = backend.get(str(result))
+    if name is None:
+        name = ''
+    else:
+        name = name.decode()
+    return name
+
+
+def get_result_logging_name(result, name=None):
+    if name is None:
+        name = get_task_name_from_result(result)
+    return '%s[%s]' % (name, result)
+
+
+def is_result_ready(result, max_trials=None, retry_delay=1):
+    """
+    Protect against broker being temporary unreachable and throwing a TimeoutError
+    """
+    trials = 0
+    while True:
+        try:
+            return result.ready()
+        except Exception as e:
+            # need to handle different timeout exceptions from different brokers
+            if type(e).__name__ != "TimeoutError":
+                raise
+
+            trials += 1
+            logger.warning('Backend was not reachable and timed out; trial %d' % trials)
+            if max_trials and trials >= max_trials:
+                logger.error('Reached max_trials of %d...giving up!' % max_trials)
+                raise
+            else:
+                time.sleep(retry_delay)
+
+
+def _check_for_traceback_in_parents(result):
+    parent = result.parent
+    if parent:
+        if parent.failed():
+            raise ChainInterruptedException(get_result_logging_name(parent))
+        elif parent.state == 'REVOKED':
+            raise ChainRevokedException(get_result_logging_name(parent))
+        else:
+            return _check_for_traceback_in_parents(parent)
+
+
+WaitLoopCallBack = namedtuple('WaitLoopCallBack', ['func', 'frequency', 'kwargs'])
+
+
+def wait_on_async_results(results, max_wait=None, depth=1, callbacks: [WaitLoopCallBack]=tuple(),
+                          sleep_between_iterations=0.1):
+    if not results:
+        return
+
+    max_trials = max_wait/sleep_between_iterations if max_wait else None
+    trials = 0
+
+    if isinstance(results, AsyncResult):
+        results = [results]
+
+    for result in results:
+        name = get_result_logging_name(result)
+        logger.debug('-'*depth*2 + '> Waiting for %s to become ready' % name)
+        while not is_result_ready(result) and not RevokedRequests.instance().is_revoked(result):
+
+            _check_for_traceback_in_parents(result)
+
+            if max_trials and trials >= max_trials:
+                raise WaitOnChainTimeoutError('Result ID %s was not ready in %d seconds' % (name, max_wait))
+            time.sleep(sleep_between_iterations)
+            trials += 1
+
+            # callbacks
+            for callback in callbacks:
+                if trials % (callback.frequency / sleep_between_iterations) == 0:
+                    callback.func(**callback.kwargs)
+        if result.state == 'REVOKED' and depth == 1:
+            raise ChainRevokedException(name)
+        children = result.children
+        if children:
+            for child in children:
+                if child == result:
+                    logger.error('OOPS: INFINITE RECURSION WAS BLOCKED for %s' % name)
+                else:
+                    wait_on_async_results(child, max_wait, depth + 1, callbacks,
+                                          sleep_between_iterations=sleep_between_iterations)
+
+
+class WaitOnChainTimeoutError(Exception):
+    pass
+
+
+class ChainRevokedException(Exception):
+    MESSAGE = "The chain has been interrupted by the revocation of microservice %s"
+
+    def __init__(self, microservice_name):
+        super(ChainRevokedException, self).__init__(self.MESSAGE % microservice_name)
+
+
+class ChainInterruptedException(Exception):
+    MESSAGE = "The chain has been interrupted by a failure in microservice %s"
+
+    def __init__(self, microservice_name):
+        super(ChainInterruptedException, self).__init__(self.MESSAGE % microservice_name)
