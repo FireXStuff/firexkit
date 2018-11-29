@@ -221,24 +221,20 @@ class WaitOnResultsTests(unittest.TestCase):
         with self.assertRaises(WaitOnChainTimeoutError):
             wait_on_async_results(results=mock_result, max_wait=0.2)
 
-    def test_wait_on_revoked_central(self):
-        test_app, mock_result = get_mocks()
-        mock_result.state = STARTED
-        setup_revoke((mock_result.id,))
-        with self.assertRaises(ChainRevokedException):
-            wait_on_async_results(results=mock_result)
-
-    def test_wait_on_revoked_state(self):
+    def test_wait_on_revoked_chain(self):
         setup_revoke()
         test_app, mock_results = get_mocks(["a0", "a1", "a2"])
         MockResult.set_heritage(mock_results[1], mock_results[2])
         MockResult.set_heritage(mock_results[0], mock_results[1])
+
+        # middle of the chain is revoked
         mock_results[0].state = SUCCESS
         mock_results[1].state = REVOKED
         mock_results[2].state = STARTED
         with self.assertRaises(ChainRevokedException):
             wait_on_async_results(results=mock_results[0])
 
+        # parent of the chain is revoked
         mock_results[0].state = REVOKED
         mock_results[1].state = SUCCESS
         mock_results[2].state = SUCCESS
