@@ -60,6 +60,20 @@ def _check_for_traceback_in_parents(result):
 WaitLoopCallBack = namedtuple('WaitLoopCallBack', ['func', 'frequency', 'kwargs'])
 
 
+def send_block_task_states_to_caller_task(func):
+    def wrapper(*args, **kwargs):
+        caller_task = kwargs.pop("caller_task", None)
+        if caller_task and not caller_task.request.called_directly:
+            caller_task.send_event('task-blocked')
+        try:
+            func(*args, **kwargs)
+        finally:
+            if caller_task and not caller_task.request.called_directly:
+                caller_task.send_event('task-unblocked')
+    return wrapper
+
+
+@send_block_task_states_to_caller_task
 def wait_on_async_results(results, max_wait=None, depth=1, callbacks: [WaitLoopCallBack]=tuple(),
                           sleep_between_iterations=0.1):
     if not results:
