@@ -1,10 +1,17 @@
 from inspect import signature, getfullargspec
-from firexkit.bag_of_goodies import BagOfGoodies
-from firexkit.task import parse_signature, FireXTask, get_attr_unwrapped, undecorate
 from functools import wraps
+from typing import Union
+
 from celery.canvas import chain, Signature
 from celery.local import PromiseProxy
-from typing import Union
+from celery.utils.log import get_task_logger
+
+from firexkit.result import ChainInterruptedException, wait_on_async_results, get_result_logging_name
+from firexkit.bag_of_goodies import BagOfGoodies
+from firexkit.task import parse_signature, FireXTask, get_attr_unwrapped, undecorate
+
+
+logger = get_task_logger(__name__)
 
 
 def returns(*args):
@@ -144,3 +151,23 @@ class InvalidChainArgsException(Exception):
     def __init__(self, msg, wrong_args: dict=None):
         super(InvalidChainArgsException, self).__init__(msg)
         self.wrong_args = wrong_args if wrong_args else {}
+
+
+def _enqueue(self, block=False, raise_exception_on_failure=True, caller_task=None):
+    verify_chain_arguments(self)
+    result = self.delay()
+    if block:
+        try:
+            wait_on_async_results(result, caller_task=caller_task)
+            logger.debug(get_result_logging_name(result) + ' completed. Unblocking.')
+            if result.failed():
+                raise ChainInterruptedException(get_result_logging_name(result))
+        except ChainInterruptedException:
+            if raise_exception_on_failure:
+                raise
+
+    return result
+
+
+Signature.enqueue = _enqueue
+chain.enqueue = _enqueue
