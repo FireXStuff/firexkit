@@ -3,4 +3,4 @@
 Contact Us
 ==========
 
-To reach the core FireX Kit developers, please send an email to firexdev@gmai.com
+To reach the core FireX Kit developers, please send an email to firexdev@gmail.com
