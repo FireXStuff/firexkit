@@ -1,9 +1,0 @@
-<application>
-  <component name="PyTestFrameworkService">
-    <option name="SDK_TO_PYTEST">
-      <map>
-        <entry key="$USER_HOME$/PycharmProjects/moe_stuff/venv/bin/python" value="false" />
-      </map>
-    </option>
-  </component>
-</application>
