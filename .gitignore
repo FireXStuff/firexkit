@@ -4,4 +4,4 @@
 BUILD
 .coverage
 */test-reports/*
-/build/
+docs/build/
