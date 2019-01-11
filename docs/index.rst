@@ -10,6 +10,8 @@ Welcome to FireX Kit's documentation!
    :maxdepth: 2
    :caption: Contents:
 
+   intro
+   contact
 
 
 Indices and tables
