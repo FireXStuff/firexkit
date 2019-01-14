@@ -11,7 +11,9 @@ Welcome to FireX Kit's documentation!
    :caption: Contents:
 
    intro
+   install
    contact
+   api_reference
 
 
 Indices and tables
