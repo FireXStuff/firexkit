@@ -75,10 +75,10 @@ class FireXTask(Task):
         return list(self._in_required)
 
     @property
-    def optional_args(self) -> list:
+    def optional_args(self) -> dict:
         if self._in_required is None:
             self._in_required, self._in_optional = parse_signature(self)
-        return list(self._in_optional)
+        return dict(self._in_optional)
 
 
 def undecorate(task):

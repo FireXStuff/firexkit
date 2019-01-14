@@ -243,10 +243,10 @@ class ChainVerificationTests(unittest.TestCase):
         def a_task(required, optional="yup"):
             pass  # pragma: no cover
 
-        self.assertEqual(a_task.optional_args, ['optional'])
+        self.assertEqual(a_task.optional_args, {'optional': "yup"})
         self.assertEqual(a_task.required_args, ['required'])
         self.assertEqual(a_task.return_keys, ('take_this',))
-        self.assertEqual(a_task.optional_args, ['optional'])  # repeat
+        self.assertEqual(a_task.optional_args, {'optional': "yup"})  # repeat
 
     def test_chain_assembly_validation(self):
         test_app = Celery()
