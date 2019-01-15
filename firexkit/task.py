@@ -8,6 +8,9 @@ from firexkit.argument_convertion import ConverterRegister
 
 
 class FireXTask(Task):
+    """
+    Task object that facilitates passing of arguments and return values from one task to another, to be used in chains
+    """
     def __init__(self):
         self.undecorated = undecorate(self)
         self.return_keys = getattr(self.undecorated, "_return_keys", tuple())
@@ -32,7 +35,7 @@ class FireXTask(Task):
     def post_task_run(self, results, bag_of_goodies: BagOfGoodies):
         """
         Overrideable method to allow subclasses to do something with the
-        BagOfGoodies before running the task
+        BagOfGoodies after the task has been run
         """
         pass
 
@@ -70,18 +73,25 @@ class FireXTask(Task):
 
     @property
     def required_args(self) -> list:
+        """
+        :return: list of required arguments to the microservice.
+        """
         if self._in_required is None:
             self._in_required, self._in_optional = parse_signature(self)
         return list(self._in_required)
 
     @property
     def optional_args(self) -> dict:
+        """
+        :return: dict of optional arguments to the microservice, and their values.
+        """
         if self._in_required is None:
             self._in_required, self._in_optional = parse_signature(self)
         return dict(self._in_optional)
 
 
 def undecorate(task):
+    """:return: the original function that was used to create a microservice"""
     undecorated_func = task.run
     while True:
         try:
@@ -94,7 +104,8 @@ def undecorate(task):
         return MethodType(undecorated_func, task)
 
 
-def parse_signature(task: Task)->():
+def parse_signature(task: Task)->(set, dict):
+    """Parse the run function of a microservice and return required and optional arguments"""
     required = set()
     optional = {}
     for k, v in inspect.signature(task.run).parameters.items():
@@ -107,6 +118,9 @@ def parse_signature(task: Task)->():
 
 
 def get_attr_unwrapped(fun: callable, attr_name, *default_value):
+    """
+    Unwraps a function and returns an attribute of the root function
+    """
     while fun:
         try:
             return getattr(fun, attr_name)
