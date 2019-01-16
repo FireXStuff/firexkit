@@ -11,16 +11,24 @@ logger = get_task_logger(__name__)
 
 
 class ConverterRegister:
-    ConvertNode = namedtuple('ConvertNode', ['func', 'dependencies'])
+    _ConvertNode = namedtuple('ConvertNode', ['func', 'dependencies'])
     _task_instances = {}
 
     def __init__(self):
+        """A register for argument converter functions that take in kwargs and transforms them."""
         self._pre_converters = {}
         self._post_converters = {}
         self.visit_order = None
 
     @classmethod
-    def task_convert(cls, task_name, pre_task=True, **kwargs) -> dict:
+    def task_convert(cls, task_name: str, pre_task=True, **kwargs) -> dict:
+        """
+        Run the argument conversion for a given task.
+
+        :param task_name: the short name of the task. If long name is given, it will be reduced to that short name
+        :param pre_task: Converters can be registered to run before or after a task runs
+        :param kwargs: the argument dict to be converted
+        """
         task_short_name = task_name.split('.')[-1]
         if task_short_name not in cls._task_instances:
             return kwargs
@@ -29,7 +37,9 @@ class ConverterRegister:
         return task.convert(pre_task=pre_task, **kwargs)
 
     def convert(self, pre_task=True, **kwargs) -> dict:
-
+        """ Run all registered converters
+         :param pre_task: Converters can be registered to run before or after a task runs.
+         """
         # Recreate the kwargs and remove any argument string
         # values which start with '@'.
         new_kwargs = {}
@@ -59,13 +69,14 @@ class ConverterRegister:
         return kwargs
 
     def get_visit_order(self, pre_task=True):
+        """Provide a list of all converters in order of execution, accounting for dependencies."""
         converters = self._pre_converters if pre_task else self._post_converters
         self.visit_order = []
         for converter_node in converters.values():
-            self.visit_converter(converter_node=converter_node, all_converters=converters)
+            self._visit_converter(converter_node=converter_node, all_converters=converters)
         return self.visit_order
 
-    def visit_converter(self, all_converters, converter_node, depth=0):
+    def _visit_converter(self, all_converters, converter_node, depth=0):
         if depth > len(all_converters):
             raise CircularDependencyException("A circular dependency was detected between converters")
 
@@ -81,13 +92,24 @@ class ConverterRegister:
                 raise CircularDependencyException("A converter can not be dependant on itself")
 
             if precursor not in self.visit_order and precursor in all_converters:
-                self.visit_converter(all_converters=all_converters,
-                                     converter_node=all_converters[precursor],
-                                     depth=depth+1)
+                self._visit_converter(all_converters=all_converters,
+                                      converter_node=all_converters[precursor],
+                                      depth=depth+1)
         self.visit_order.append(converter_node.func.__name__)
 
     @classmethod
     def register_for_task(cls, task: PromiseProxy, *args):
+        """ Register a converter function for a given task.
+
+        :param task: A microservice signature against which to register the task
+        :param args: A collection of optional arguments, the function of which is based on it's type:
+
+        *  **callable** (only once): A function that will be called to convert arguments
+        *  **boolean** (only once): At which point should this converter be called? False is pre (before task), \
+                 True is post. (after task)
+        *  **str**: Dependencies. Any dependency of the current converter on the one in the string.
+
+        """
         task_short_name = task.name.split('.')[-1]
         if task_short_name not in cls._task_instances:
             cls._task_instances[task_short_name] = ConverterRegister()
@@ -98,14 +120,17 @@ class ConverterRegister:
         return task_registry.register(*args)
 
     def register(self, *args):
+        """ Register a converter function.
+
+        :param args: A collection of optional arguments, the function of which is based on it's type:
+
+        * **callable** (only once): A function that will be called to convert arguments
+        * **boolean** (only once): At which point should this converter be called? False is pre (before task), \
+                True is post. (after task)
+        * **str**: Dependencies. Any dependency of the current converter on the one in the string.
+
         """
-        Register a converter function. *arg is a collection of optional arguments, the function of which is based on
-        it's type:
-            callable (only once): A function that will be called to convert arguments
-            boolean (only once): At which point should this converter be called?
-                                False is pre (before task), True is post. (after task)
-            str: Dependencies. Any dependency of the current converter on the one in the string.
-        """
+
         if len(args) is 0:
             raise ConverterRegistrationException("Registration requires at least one argument")
 
@@ -136,19 +161,19 @@ class ConverterRegister:
         if func:
             # this is the case where decorator is used WITHOUT parenthesis
             # @InputConverter.register
-            self.check_not_registered(func)
-            converters[func.__name__] = self.ConvertNode(func=func, dependencies=[])
+            self._check_not_registered(func)
+            converters[func.__name__] = self._ConvertNode(func=func, dependencies=[])
             return func
 
         # this is the case where decorator is used WITH parenthesis
         # @ConverterRegister.register(...)
         def _wrapped_register(fn):
-            self.check_not_registered(fn)
-            converters[fn.__name__] = self.ConvertNode(func=fn, dependencies=dependencies)
+            self._check_not_registered(fn)
+            converters[fn.__name__] = self._ConvertNode(func=fn, dependencies=dependencies)
             return fn
         return _wrapped_register
 
-    def check_not_registered(self, func):
+    def _check_not_registered(self, func):
         if callable(func):
             func = func.__name__
 
@@ -163,10 +188,12 @@ class ConverterRegister:
 
 
 class MissingConverterDependencyError(Exception):
+    """A converter was registered with a dependency that does not exist."""
     pass
 
 
 class CircularDependencyException(Exception):
+    """A converter was registered with a dependency that is itself directly or indirectly dependent on it."""
     pass
 
 
