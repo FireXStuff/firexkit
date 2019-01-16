@@ -161,19 +161,19 @@ class ConverterRegister:
         if func:
             # this is the case where decorator is used WITHOUT parenthesis
             # @InputConverter.register
-            self._check_not_registered(func)
+            self.check_not_registered(func)
             converters[func.__name__] = self._ConvertNode(func=func, dependencies=[])
             return func
 
         # this is the case where decorator is used WITH parenthesis
         # @ConverterRegister.register(...)
         def _wrapped_register(fn):
-            self._check_not_registered(fn)
+            self.check_not_registered(fn)
             converters[fn.__name__] = self._ConvertNode(func=fn, dependencies=dependencies)
             return fn
         return _wrapped_register
 
-    def _check_not_registered(self, func):
+    def check_not_registered(self, func):
         if callable(func):
             func = func.__name__
 
