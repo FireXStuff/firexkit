@@ -184,6 +184,13 @@ class ConverterRegister:
         task_short_name = task_name.split('.')[-1]
         return cls._task_instances.get(task_short_name)
 
+    @classmethod
+    def list_converters(cls, task_name, pre_task=True):
+        reg = cls.get_register(task_name)
+        if not reg:
+            return []
+        return reg.get_visit_order(pre_task=pre_task)
+
 
 class ConverterRegistrationException(Exception):
     """A coding error in the registration of the converter"""

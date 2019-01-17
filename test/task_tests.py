@@ -2,9 +2,10 @@
 import unittest
 from celery import Celery
 
+from firexkit.argument_conversion import ConverterRegister
 from firexkit.bag_of_goodies import BagOfGoodies
 from firexkit.chain import returns
-from firexkit.task import FireXTask
+from firexkit.task import FireXTask, task_prerequisite
 
 
 class TaskTests(unittest.TestCase):
@@ -94,17 +95,19 @@ class TaskTests(unittest.TestCase):
     def test_undecorated(self):
         test_app = Celery()
 
+        # noinspection PyUnusedLocal
         @test_app.task(base=FireXTask, bind=True)
-        def a(self, something):
+        def a(myself, something):
             return something
 
         @test_app.task(base=FireXTask)
         def b(something):
             return something
 
+        # noinspection PyUnusedLocal
         @test_app.task(base=FireXTask, bind=True)
         @returns('something')
-        def c(self, something):
+        def c(myself, something):
             return something
 
         @test_app.task(base=FireXTask)
@@ -117,3 +120,26 @@ class TaskTests(unittest.TestCase):
                 the_sent_something = "something"
                 result = micro.undecorated(the_sent_something)
                 self.assertEqual(the_sent_something, result)
+
+    def test_prerequisite(self):
+        test_app = Celery()
+
+        @test_app.task(base=FireXTask)
+        def something():
+            # Should not reach here
+            pass  # pragma: no cover
+
+        @task_prerequisite(something, trigger=lambda _: False)
+        @test_app.task(base=FireXTask)
+        def needs_a_little_something():
+            # Should not reach here
+            pass  # pragma: no cover
+
+        self.assertTrue(len(ConverterRegister.list_converters(needs_a_little_something.__name__)) == 1)
+
+        with self.assertRaises(Exception):
+            @task_prerequisite(something, trigger=None)
+            @test_app.task(base=FireXTask)
+            def go_boom():
+                # Should not reach here
+                pass  # pragma: no cover

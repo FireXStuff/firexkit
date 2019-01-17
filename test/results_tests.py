@@ -3,7 +3,8 @@ from celery import Celery
 from celery.result import AsyncResult
 from celery.states import SUCCESS, FAILURE, REVOKED, STARTED
 from firexkit.result import wait_on_async_results, get_task_name_from_result, get_result_logging_name, \
-    is_result_ready, WaitLoopCallBack, WaitOnChainTimeoutError, ChainRevokedException, ChainInterruptedException
+    is_result_ready, WaitLoopCallBack, WaitOnChainTimeoutError, ChainRevokedException, ChainInterruptedException, \
+    get_tasks_names_from_results
 from firexkit.revoke import RevokedRequests
 
 
@@ -69,6 +70,13 @@ class ResultsLoggingNamesTests(unittest.TestCase):
         test_app.backend.set(result_id, "yes".encode('utf-8'))
         found_name = get_task_name_from_result(mock_result)
         self.assertEqual(found_name, "yes")
+
+    def test_get_many_task_names(self):
+        test_app, mock_results = get_mocks(["a", "b"])
+        test_app.backend.set("a", "yes".encode('utf-8'))
+        test_app.backend.set("b", "yes".encode('utf-8'))
+        found_name = get_tasks_names_from_results(mock_results)
+        self.assertEqual(found_name, ["yes[a]", "yes[b]"])
 
     def test_get_logging_name(self):
         test_app, mock_result = get_mocks()
