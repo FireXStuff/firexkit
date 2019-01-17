@@ -113,7 +113,7 @@ class ArgConversionTests(unittest.TestCase):
             test_input_converter.convert(**{})
 
         #####################################################
-        # test boolean to indicate after microservices loaded
+        # test in combination with boolean to indicate pre or post task
         test_input_converter = ConverterRegister()
 
         @test_input_converter.register(True)
@@ -172,7 +172,7 @@ class ArgConversionTests(unittest.TestCase):
     def test_exclude_indirect_args(self):
         test_input_converter = ConverterRegister()
 
-        @test_input_converter.register(False)
+        @test_input_converter.register(True)
         def no_indirect(kwargs):
             # indirect args should not be passed to converters
             self.assertTrue("excluded" not in kwargs)
