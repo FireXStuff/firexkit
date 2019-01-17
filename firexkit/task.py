@@ -4,7 +4,7 @@ from abc import abstractmethod
 from celery.app.task import Task
 
 from firexkit.bag_of_goodies import BagOfGoodies
-from firexkit.argument_convertion import ConverterRegister
+from firexkit.argument_conversion import ConverterRegister
 
 
 class FireXTask(Task):

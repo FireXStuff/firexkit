@@ -105,8 +105,8 @@ class ConverterRegister:
         :param args: A collection of optional arguments, the function of which is based on it's type:
 
         *  **callable** (only once): A function that will be called to convert arguments
-        *  **boolean** (only once): At which point should this converter be called? False is pre (before task), \
-                 True is post. (after task)
+        *  **boolean** (only once): At which point should this converter be called? True is pre (before task), \
+                 False is post. (after task)
         *  **str**: Dependencies. Any dependency of the current converter on the one in the string.
 
         """
@@ -125,8 +125,8 @@ class ConverterRegister:
         :param args: A collection of optional arguments, the function of which is based on it's type:
 
         * **callable** (only once): A function that will be called to convert arguments
-        * **boolean** (only once): At which point should this converter be called? False is pre (before task), \
-                True is post. (after task)
+        * **boolean** (only once): At which point should this converter be called? True is pre (before task), \
+                False is post. (after task)
         * **str**: Dependencies. Any dependency of the current converter on the one in the string.
 
         """
@@ -136,7 +136,7 @@ class ConverterRegister:
 
         func = None
         dependencies = []
-        run_post_task = None
+        run_pre_task = None
 
         for arg in args:
             if callable(arg):
@@ -144,19 +144,19 @@ class ConverterRegister:
             elif isinstance(arg, str):
                 dependencies.append(arg)
             elif isinstance(arg, bool):
-                run_post_task = arg
+                run_pre_task = arg
             else:
                 raise ConverterRegistrationException(
                     "Converter incorrectly registered. Type %s not recognised" % str(type(arg)))
 
-        return self._sub_register(func=func, dependencies=dependencies, run_post_task=run_post_task)
+        return self._sub_register(func=func, dependencies=dependencies, run_pre_task=run_pre_task)
 
-    def _sub_register(self, func, dependencies: [], run_post_task):
+    def _sub_register(self, func, dependencies: [], run_pre_task):
 
-        if not run_post_task:
-            converters = self._pre_converters
-        else:
+        if run_pre_task is False:
             converters = self._post_converters
+        else:
+            converters = self._pre_converters
 
         if func:
             # this is the case where decorator is used WITHOUT parenthesis

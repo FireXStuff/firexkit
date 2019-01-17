@@ -65,7 +65,7 @@ class TaskTests(unittest.TestCase):
                 test_obj()
 
     def test_task_argument_conversion(self):
-        from firexkit.argument_convertion import ConverterRegister
+        from firexkit.argument_conversion import ConverterRegister
         from celery.utils.threads import LocalStack
 
         # noinspection PyAbstractClass
@@ -77,11 +77,11 @@ class TaskTests(unittest.TestCase):
             def run(self):
                 pass
 
-        @ConverterRegister.register_for_task(TestTask, False)
+        @ConverterRegister.register_for_task(TestTask, True)
         def pre(_):
             TestTask.pre_ran = True
 
-        @ConverterRegister.register_for_task(TestTask, True)
+        @ConverterRegister.register_for_task(TestTask, False)
         def post(_):
             TestTask.post_ran = True
 

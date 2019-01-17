@@ -2,7 +2,7 @@
 import unittest
 from celery import Celery
 
-from firexkit.argument_convertion import ConverterRegister, CircularDependencyException, \
+from firexkit.argument_conversion import ConverterRegister, CircularDependencyException, \
     MissingConverterDependencyError, ConverterRegistrationException
 from firexkit.task import FireXTask
 
@@ -141,18 +141,18 @@ class ArgConversionTests(unittest.TestCase):
         # test pre cannot be dependant on post
         test_input_converter = ConverterRegister()
 
-        @test_input_converter.register(False)
+        @test_input_converter.register(True)
         def converter_thirteen(kwargs):
             kwargs['converter_thirteen'] = True
 
         # post can be dependant on pre
-        @test_input_converter.register(True, "converter_thirteen")
+        @test_input_converter.register(False, "converter_thirteen")
         def converter_fourteen(kwargs):
             unit_test_obj.assertTrue('converter_thirteen' in kwargs)
         kw = test_input_converter.convert(pre_task=True, **{})
         test_input_converter.convert(pre_task=False, **kw)
 
-        @test_input_converter.register(False, "converter_fourteen")
+        @test_input_converter.register(True, "converter_fourteen")
         def converter_fifteen(_):
                 # Should not reach here
                 pass  # pragma: no cover
