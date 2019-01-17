@@ -98,15 +98,15 @@ class ConverterRegister:
         self.visit_order.append(converter_node.func.__name__)
 
     @classmethod
-    def register_for_task(cls, task: PromiseProxy, *args):
+    def register_for_task(cls, task: PromiseProxy, pre_task=True, *args):
         """ Register a converter function for a given task.
 
         :param task: A microservice signature against which to register the task
+        :param pre_task: At which point should this converter be called? True is pre (before task), \
+                 False is post. (after task)
         :param args: A collection of optional arguments, the function of which is based on it's type:
 
         *  **callable** (only once): A function that will be called to convert arguments
-        *  **boolean** (only once): At which point should this converter be called? True is pre (before task), \
-                 False is post. (after task)
         *  **str**: Dependencies. Any dependency of the current converter on the one in the string.
 
         """
@@ -114,10 +114,7 @@ class ConverterRegister:
         if task_short_name not in cls._task_instances:
             cls._task_instances[task_short_name] = ConverterRegister()
         task_registry = cls._task_instances[task_short_name]
-        if not len(args):
-            raise ConverterRegistrationException("Task Registration requires an additional bool parameter. "
-                                                 "False is pre-task")
-        return task_registry.register(*args)
+        return task_registry.register(pre_task, *args)
 
     def register(self, *args):
         """ Register a converter function.
@@ -168,6 +165,8 @@ class ConverterRegister:
         # this is the case where decorator is used WITH parenthesis
         # @ConverterRegister.register(...)
         def _wrapped_register(fn):
+            if not callable(fn):
+                raise ConverterRegistrationException("A converter must be callable")
             self.check_not_registered(fn)
             converters[fn.__name__] = self._ConvertNode(func=fn, dependencies=dependencies)
             return fn
@@ -178,8 +177,7 @@ class ConverterRegister:
             func = func.__name__
 
         if func in self._pre_converters or func in self._post_converters:
-            raise ConverterRegistrationException("Converter %s is already registered. "
-                                                 "Please define a unique name" % func)
+            raise NameDuplicationException("Converter %s is already registered. Please define a unique name" % func)
 
     @classmethod
     def get_register(cls, task_name):
@@ -187,15 +185,22 @@ class ConverterRegister:
         return cls._task_instances.get(task_short_name)
 
 
-class MissingConverterDependencyError(Exception):
+class ConverterRegistrationException(Exception):
+    """A coding error in the registration of the converter"""
+    pass
+
+
+class MissingConverterDependencyError(ConverterRegistrationException):
     """A converter was registered with a dependency that does not exist."""
     pass
 
 
-class CircularDependencyException(Exception):
+class CircularDependencyException(ConverterRegistrationException):
     """A converter was registered with a dependency that is itself directly or indirectly dependent on it."""
     pass
 
 
-class ConverterRegistrationException(Exception):
+class NameDuplicationException(ConverterRegistrationException):
+    """A converter was registered with the same name as another converter. This creates conflicts during dependency
+    check, and is not allow"""
     pass

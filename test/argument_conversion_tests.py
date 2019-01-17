@@ -3,7 +3,7 @@ import unittest
 from celery import Celery
 
 from firexkit.argument_conversion import ConverterRegister, CircularDependencyException, \
-    MissingConverterDependencyError, ConverterRegistrationException
+    MissingConverterDependencyError, ConverterRegistrationException, NameDuplicationException
 from firexkit.task import FireXTask
 
 
@@ -200,7 +200,7 @@ class ArgConversionTests(unittest.TestCase):
 
         with self.assertRaises(ConverterRegistrationException):
             # no Function provided
-            ConverterRegister.register_for_task(a_task)
+            ConverterRegister.register_for_task(a_task)(None)
 
         test_input_converter = ConverterRegister()
         with self.assertRaises(ConverterRegistrationException):
@@ -224,12 +224,12 @@ class ArgConversionTests(unittest.TestCase):
         with self.assertRaises(TestException):
             test_input_converter.convert()
 
-        with self.assertRaises(ConverterRegistrationException):
+        with self.assertRaises(NameDuplicationException):
             # register the same thing a second time
             @test_input_converter.register
             def go_boom(_):
                 # Should not reach here
                 pass  # pragma: no cover
 
-        with self.assertRaises(ConverterRegistrationException):
+        with self.assertRaises(NameDuplicationException):
             test_input_converter.check_not_registered("go_boom")
