@@ -18,6 +18,10 @@ def get_task_name_from_result(result):
     return name
 
 
+def get_tasks_names_from_results(results):
+    return [get_result_logging_name(r) for r in results]
+
+
 def get_result_logging_name(result, name=None):
     if name is None:
         name = get_task_name_from_result(result)

@@ -2,15 +2,24 @@ import inspect
 from types import MethodType
 from abc import abstractmethod
 from celery.app.task import Task
+from celery.utils.log import get_task_logger
 
 from firexkit.bag_of_goodies import BagOfGoodies
 from firexkit.argument_conversion import ConverterRegister
+from firexkit.result import wait_on_async_results, get_tasks_names_from_results
+
+logger = get_task_logger(__name__)
 
 
 class FireXTask(Task):
     """
     Task object that facilitates passing of arguments and return values from one task to another, to be used in chains
     """
+
+    STATE_KEY = 'state'
+    PENDING = 'pending'
+    UNBLOCKED = 'unblocked'
+
     def __init__(self):
         self.undecorated = undecorate(self)
         self.return_keys = getattr(self.undecorated, "_return_keys", tuple())
@@ -18,6 +27,8 @@ class FireXTask(Task):
 
         self._in_required = None
         self._in_optional = None
+
+        self._enqueued_children = {}
 
     def run(self, *args, **kwargs):
         """The body of the task executed by workers."""
@@ -88,6 +99,42 @@ class FireXTask(Task):
         if self._in_required is None:
             self._in_required, self._in_optional = parse_signature(self)
         return dict(self._in_optional)
+
+    @property
+    def enqueued_children(self):
+        return list(self._enqueued_children.keys())
+
+    @property
+    def pending_enqueued_children(self):
+        return [child for child, result in self._enqueued_children.items() if
+                result.get(self.STATE_KEY) == self.PENDING]
+
+    def _add_enqueued_child(self, child_result):
+        if child_result not in self._enqueued_children:
+            self._enqueued_children[child_result] = {}
+
+    def _update_child_state(self, child_result, state):
+        if child_result not in self._enqueued_children:
+            self._add_enqueued_child(child_result)
+        self._enqueued_children[child_result][self.STATE_KEY] = state
+
+    def wait_for_children(self, pending_only=True, **kwargs):
+        child_results = self.pending_enqueued_children if pending_only else self.enqueued_children
+        if child_results:
+            logger.debug('Waiting for enqueued children: %r' % get_tasks_names_from_results(child_results))
+            wait_on_async_results(child_results, caller_task=self, **kwargs)
+            [self._update_child_state(child_result, self.UNBLOCKED) for child_result in child_results]
+
+    def enqueue_child(self, chain, **kwargs):
+        from firexkit.chain import InjectArgs
+        if isinstance(chain, InjectArgs):
+            return
+
+        child_result = chain.enqueue(caller_task=self, **kwargs)
+        self._add_enqueued_child(child_result)
+        if not kwargs.get('block', False):
+            self._update_child_state(child_result, self.PENDING)
+        return child_result
 
 
 def undecorate(task):
