@@ -16,7 +16,7 @@ FireX Kit provides:
 
 Argument Passing made easy
 ---------------------------
-FireX Kit uses a simple concept called Bag Of Goodies (BOG), which can be visualized as a dictionary of argument/value pairs from which a  task can pick the subset of arguments it requires, and might choose to update the BOG with returned key/value pairs. This dynamic dictionary then moves to the next task in the chain, which will in turn can consume some of the arguments it requires, as well as optionally add or update the BOG with its returns.
+FireX Kit uses a simple concept we refer to as the Bag Of Goodies (BOG), which can be visualized as a dictionary of argument/value pairs from which a  task can pick the subset of arguments it requires, and might choose to update the BOG with returned key/value pairs. This dynamic dictionary then moves to the next task in the chain, which will in turn can consume some of the arguments it requires, as well as optionally add or update the BOG with its returns.
 
 Consider a chain comprised of `Task A`, `Task B`, and `Task C`. If these tasks derives from ``FireXTask`` class, the arguments and return values will flow as depicted in the following diagram:
 
