@@ -1,6 +1,6 @@
-
 from collections import namedtuple
 from datetime import datetime
+from functools import wraps
 from celery.utils.log import get_task_logger
 from celery.local import PromiseProxy
 
@@ -11,6 +11,8 @@ logger = get_task_logger(__name__)
 
 
 class ConverterRegister:
+    """Converters are a practical mechanism for altering the input values into microservices. They can
+    also be used in upfront validation of the inputs."""
     _ConvertNode = namedtuple('ConvertNode', ['func', 'dependencies'])
     _task_instances = {}
 
@@ -190,6 +192,45 @@ class ConverterRegister:
         if not reg:
             return []
         return reg.get_visit_order(pre_task=pre_task)
+
+
+class SingleArgDecorator(object):
+    """
+    Decorator to simplify a common use case for argument converters, in which a single argument in the
+    bag of goodies needs to be validated or converted. Converter is only called if the argument is in
+    kwargs.
+
+    :Example:
+
+    @ConverterRegister.ConverterRegister(BirthdayCake)
+    @SingleArgDecorator("message"):
+    def yell_loud(arg_value):
+        return arg_value.upper()
+    """
+
+    def __init__(self, *args):
+        """
+        :param args: A lists of argument names for which this converter applies
+        """
+        self.args = args
+
+    def __call__(self, fn):
+        @wraps(fn)
+        def validator_decorator(args):
+            ret = {}
+            for k in self.args:
+                if k in args:
+                    orig_value = args[k]
+                    # we don't validate ref values (i.e. @something)
+                    if hasattr(orig_value, 'startswith') and orig_value.startswith(BagOfGoodies.INDIRECT_ARG_CHAR):
+                        ret[k] = orig_value
+                    else:
+                        v = fn(args[k])
+                        if v is None and orig_value is not None:
+                            logger.debug(k + " was converted to None")
+                        ret[k] = v
+            return ret
+        return validator_decorator
 
 
 class ConverterRegistrationException(Exception):
