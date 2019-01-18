@@ -1,7 +1,10 @@
 steps:
-#- name: gcr.io/cloud-builders/git
-#  args: ['clone', 'https://github.com/FireXStuff/firexkit.git']
+- name: gcr.io/cloud-builders/git
+  args: ['clone', 'https://github.com/FireXStuff/firexkit.git'
+  dir: 'new_install'
 - name: gcr.io/$PROJECT_ID/firex_sphinx
   args: ['sphinx-build', '-b', 'html', 'firexkit/docs', 'html']
+  dir: 'new_install'
 - name: gcr.io/cloud-builders/gsutil
   args: ['rsync', '-r', 'html', 'gs://www.firexkit.com']
+  dir: 'new_install'
