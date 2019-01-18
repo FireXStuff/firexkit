@@ -3,7 +3,7 @@ import unittest
 from celery import Celery
 
 from firexkit.argument_conversion import ConverterRegister, CircularDependencyException, \
-    MissingConverterDependencyError, ConverterRegistrationException, NameDuplicationException
+    MissingConverterDependencyError, ConverterRegistrationException, NameDuplicationException, SingleArgDecorator
 from firexkit.task import FireXTask
 
 
@@ -189,6 +189,12 @@ class ArgConversionTests(unittest.TestCase):
         self.assertTrue("included" in kw)
         self.assertTrue("ignored" in kw)
 
+        # single arg converter redundantly filters @indirect
+        @SingleArgDecorator("filter")
+        def boom(_):
+            raise Exception("Test Fail")  # pragma: no cover
+        boom({"filter": "@ya"})
+
     def test_failing_converters(self):
 
         test_app = Celery()
@@ -233,3 +239,29 @@ class ArgConversionTests(unittest.TestCase):
 
         with self.assertRaises(NameDuplicationException):
             test_input_converter.check_not_registered("go_boom")
+
+    def test_single_arg_converter(self):
+        test_input_converter = ConverterRegister()
+
+        @test_input_converter.register
+        @SingleArgDecorator("hit_this", "this_is_not_there", "skip_this")
+        def flip(arg_value):
+            return not arg_value
+
+        @test_input_converter.register
+        @SingleArgDecorator("ya no")
+        def nope(_):
+            return None
+
+        data = {
+            "hit_this": False,
+            "skip_this": "@hit_this",
+            "do_not_hit_this": False,
+            "ya no": "yes"
+        }
+        result = test_input_converter.convert(**data)
+        self.assertTrue(result["hit_this"])
+        self.assertFalse(result["do_not_hit_this"])
+        self.assertTrue("this_is_not_there" not in result)
+        self.assertTrue(result["skip_this"] == "@hit_this")
+        self.assertIsNone(result["ya no"])
