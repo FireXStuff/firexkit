@@ -73,7 +73,7 @@ class FireXTask(Task):
                                  "implicitly called by this task's base class:\n" + str(e))
             return result
         finally:
-            if self._lagging_children_strategy is PendingChildStrategy.Revoke:
+            if self._lagging_children_strategy is not PendingChildStrategy.Continue:
                 self.revoke_pending_children()
 
     def _process_arguments_and_run(self, *args, **kwargs):
