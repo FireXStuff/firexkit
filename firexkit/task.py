@@ -1,4 +1,5 @@
 import inspect
+from enum import Enum
 from types import MethodType
 from abc import abstractmethod
 from celery.app.task import Task
@@ -12,18 +13,27 @@ from firexkit.result import wait_on_async_results, get_tasks_names_from_results
 logger = get_task_logger(__name__)
 
 
+class PendingChildStrategy(Enum):
+    """
+    Available strategies for handling remaining pending child tasks upon successful completion
+    of the parent microservice.
+    """
+
+    Block = 0, "Default"
+    Revoke = 1
+    Continue = 2
+
+
 class FireXTask(Task):
     """
     Task object that facilitates passing of arguments and return values from one task to another, to be used in chains
     """
 
-    STATE_KEY = 'state'
-    PENDING = 'pending'
-    UNBLOCKED = 'unblocked'
-
     def __init__(self):
         self.undecorated = undecorate(self)
         self.return_keys = getattr(self.undecorated, "_return_keys", tuple())
+        self._lagging_children_strategy = get_attr_unwrapped(self, 'pending_child_strategy', PendingChildStrategy.Block)
+
         super(FireXTask, self).__init__()
 
         self._in_required = None
@@ -52,6 +62,21 @@ class FireXTask(Task):
         pass
 
     def __call__(self, *args, **kwargs):
+        try:
+            result = self._process_arguments_and_run(*args, **kwargs)
+
+            if self._lagging_children_strategy is PendingChildStrategy.Block:
+                try:
+                    self.wait_for_children()
+                except Exception as e:
+                    logger.debug("The following exception was thrown (and caught) when wait_for_children was "
+                                 "implicitly called by this task's base class:\n" + str(e))
+            return result
+        finally:
+            if self._lagging_children_strategy is PendingChildStrategy.Revoke:
+                self.revoke_pending_children()
+
+    def _process_arguments_and_run(self, *args, **kwargs):
         # Organise the input args by creating a BagOfGoodies
         sig = inspect.signature(self.run)
         bog = BagOfGoodies(sig, args, kwargs)
@@ -101,6 +126,13 @@ class FireXTask(Task):
             self._in_required, self._in_optional = parse_signature(self)
         return dict(self._in_optional)
 
+    #######################
+    # Enqueuing child tasks
+
+    _STATE_KEY = 'state'
+    _PENDING = 'pending'
+    _UNBLOCKED = 'unblocked'
+
     @property
     def enqueued_children(self):
         return list(self._enqueued_children.keys())
@@ -108,7 +140,7 @@ class FireXTask(Task):
     @property
     def pending_enqueued_children(self):
         return [child for child, result in self._enqueued_children.items() if
-                result.get(self.STATE_KEY) == self.PENDING]
+                result.get(self._STATE_KEY) == self._PENDING]
 
     def _add_enqueued_child(self, child_result):
         if child_result not in self._enqueued_children:
@@ -117,16 +149,18 @@ class FireXTask(Task):
     def _update_child_state(self, child_result, state):
         if child_result not in self._enqueued_children:
             self._add_enqueued_child(child_result)
-        self._enqueued_children[child_result][self.STATE_KEY] = state
+        self._enqueued_children[child_result][self._STATE_KEY] = state
 
     def wait_for_children(self, pending_only=True, **kwargs):
+        """Wait for all enqueued child tasks to run and complete"""
         child_results = self.pending_enqueued_children if pending_only else self.enqueued_children
         if child_results:
             logger.debug('Waiting for enqueued children: %r' % get_tasks_names_from_results(child_results))
             wait_on_async_results(child_results, caller_task=self, **kwargs)
-            [self._update_child_state(child_result, self.UNBLOCKED) for child_result in child_results]
+            [self._update_child_state(child_result, self._UNBLOCKED) for child_result in child_results]
 
     def enqueue_child(self, chain, **kwargs):
+        """Schedule a child task to run"""
         from firexkit.chain import InjectArgs
         if isinstance(chain, InjectArgs):
             return
@@ -134,7 +168,7 @@ class FireXTask(Task):
         child_result = chain.enqueue(caller_task=self, **kwargs)
         self._add_enqueued_child(child_result)
         if not kwargs.get('block', False):
-            self._update_child_state(child_result, self.PENDING)
+            self._update_child_state(child_result, self._PENDING)
         return child_result
 
 

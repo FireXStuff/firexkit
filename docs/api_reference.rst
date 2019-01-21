@@ -1,10 +1,10 @@
 API Reference
 =============
 
-firexkit.argument\_convertion module
+firexkit.argument\_conversion module
 ------------------------------------
 
-.. automodule:: firexkit.argument_convertion
+.. automodule:: firexkit.argument_conversion
     :members:
     :undoc-members:
     :show-inheritance:
