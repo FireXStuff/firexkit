@@ -65,3 +65,16 @@ class RevokedRequests(object):
                 return self._task_in_revoked_list(result_id)
             else:
                 return False
+
+
+def revoke_recursively(results, depth=1):
+    if not isinstance(results, list):
+        results = [results]
+    for result in results:
+        children = result.children
+        if children:
+            revoke_recursively(children, depth+1)
+        else:
+            result.revoke(terminate=True)
+            from firexkit.result import get_result_logging_name
+            logger.info('='*depth + '> Revoked %r' % get_result_logging_name(result))

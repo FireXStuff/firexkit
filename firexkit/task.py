@@ -6,6 +6,7 @@ from celery.app.task import Task
 from celery.local import PromiseProxy
 from celery.utils.log import get_task_logger
 
+from firexkit.revoke import revoke_recursively
 from firexkit.bag_of_goodies import BagOfGoodies
 from firexkit.argument_conversion import ConverterRegister
 from firexkit.result import wait_on_async_results, get_tasks_names_from_results
@@ -170,6 +171,13 @@ class FireXTask(Task):
         if not kwargs.get('block', False):
             self._update_child_state(child_result, self._PENDING)
         return child_result
+
+    def revoke_pending_children(self):
+        pending_children = self.pending_enqueued_children
+        if pending_children:
+            logger.info('Pending children of current task exist. '
+                        'Revoking %r' % get_tasks_names_from_results(pending_children))
+            revoke_recursively(pending_children)
 
 
 def undecorate(task):
