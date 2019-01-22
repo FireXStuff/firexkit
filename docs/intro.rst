@@ -31,7 +31,7 @@ In the above example:
 
 Few things are noteworthy:
 
-* A ``FireXTask`` like `Task A`, `Task B`, and `Task C` does not need to consume `**kwargs` in order to enable it to consume extra arguments that it doesn't need. For example, `Task A`'s signature contains only `k1`.
+* A ``FireXTask`` like `Task A`, `Task B`, and `Task C` does not need to consume `**kwargs` in order to enable it to consume extra arguments that it doesn't need. For example, `Task A`'s signature contains only `k1`. The other arguments will not provided to `TaskA`.
 * There is only one BOG in a given chain, so, if a task in the chain returns the same key as an element that already exists in the BOG, the original value of that key will be replaced, as was the case with `k4` update by `Task B` in the example above.
 
 Below is another simple example of two ``FireXTask`` tasks:
