@@ -225,12 +225,20 @@ class SingleArgDecorator(object):
                     if hasattr(orig_value, 'startswith') and orig_value.startswith(BagOfGoodies.INDIRECT_ARG_CHAR):
                         ret[k] = orig_value
                     else:
-                        v = fn(args[k])
+                        try:
+                            v = fn(args[k])
+                        except Exception as e:
+                            raise ArgumentConversionException(k + ": " + str(e))
                         if v is None and orig_value is not None:
                             logger.debug(k + " was converted to None")
                         ret[k] = v
             return ret
         return validator_decorator
+
+
+class ArgumentConversionException(Exception):
+    """An exception occurred while executing a converter"""
+    pass
 
 
 class ConverterRegistrationException(Exception):

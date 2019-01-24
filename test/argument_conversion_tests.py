@@ -3,7 +3,8 @@ import unittest
 from celery import Celery
 
 from firexkit.argument_conversion import ConverterRegister, CircularDependencyException, \
-    MissingConverterDependencyError, ConverterRegistrationException, NameDuplicationException, SingleArgDecorator
+    MissingConverterDependencyError, ConverterRegistrationException, NameDuplicationException, SingleArgDecorator, \
+    ArgumentConversionException
 from firexkit.task import FireXTask
 
 
@@ -265,3 +266,10 @@ class ArgConversionTests(unittest.TestCase):
         self.assertTrue("this_is_not_there" not in result)
         self.assertTrue(result["skip_this"] == "@hit_this")
         self.assertIsNone(result["ya no"])
+
+        @test_input_converter.register
+        @SingleArgDecorator("match")
+        def go_boom(_):
+            raise NotImplementedError("Go boom")
+        with self.assertRaises(ArgumentConversionException):
+            test_input_converter.convert(**{"match": True})
