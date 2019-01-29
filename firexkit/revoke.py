@@ -78,3 +78,22 @@ def revoke_recursively(results, depth=1):
             result.revoke(terminate=True)
             from firexkit.result import get_result_logging_name
             logger.info('='*depth + '> Revoked %r' % get_result_logging_name(result))
+
+
+def get_chain_head(parent, child):
+    if child == parent or parent is None or child is None:
+        return child
+    one_up = child.parent
+    if one_up == parent or one_up is None:
+        return child
+    else:
+        return get_chain_head(parent=parent, child=one_up)
+
+
+def revoke_chains_recursively(parent, results):
+    pending_children_heads = [get_chain_head(parent=parent, child=c) for c in results]
+    if pending_children_heads:
+        from firexkit.result import get_tasks_names_from_results
+        logger.info('Revoking chain heads of %r -> %r' % (get_tasks_names_from_results(results),
+                                                          get_tasks_names_from_results(pending_children_heads)))
+        revoke_recursively(pending_children_heads)
