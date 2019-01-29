@@ -160,16 +160,17 @@ class FireXTask(Task):
             wait_on_async_results(child_results, caller_task=self, **kwargs)
             [self._update_child_state(child_result, self._UNBLOCKED) for child_result in child_results]
 
-    def enqueue_child(self, chain, **kwargs):
+    def enqueue_child(self, chain, add_to_enqueued_children=True, **kwargs):
         """Schedule a child task to run"""
         from firexkit.chain import InjectArgs
         if isinstance(chain, InjectArgs):
             return
 
         child_result = chain.enqueue(caller_task=self, **kwargs)
-        self._add_enqueued_child(child_result)
-        if not kwargs.get('block', False):
-            self._update_child_state(child_result, self._PENDING)
+        if add_to_enqueued_children:
+            self._add_enqueued_child(child_result)
+            if not kwargs.get('block', False):
+                self._update_child_state(child_result, self._PENDING)
         return child_result
 
     def revoke_pending_children(self):
