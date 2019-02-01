@@ -228,7 +228,7 @@ class SingleArgDecorator(object):
                         try:
                             v = fn(args[k])
                         except Exception as e:
-                            raise ArgumentConversionException(k + ": " + str(e))
+                            raise ArgumentConversionException(k + ": " + str(e)) from None
                         if v is None and orig_value is not None:
                             logger.debug(k + " was converted to None")
                         ret[k] = v
