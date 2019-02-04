@@ -1,1 +1,3 @@
 include LICENSE BUILD
+include versioneer.py
+include firexkit/_version.py

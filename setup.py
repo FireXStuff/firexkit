@@ -1,5 +1,6 @@
 from setuptools import setup
 import os
+import versioneer
 
 # Determine the build number
 build_file = os.path.join(os.path.dirname(__file__), "BUILD")
@@ -10,7 +11,8 @@ else:
     version_num = "dev"
 
 setup(name='firexkit',
-      version='0.1.' + version_num,
+      version=versioneer.get_version(),
+      cmdclass=versioneer.get_cmdclass(),
       description='Core firex libraries',
       url='https://github.com/FireXStuff/firexkit',
       author='Core FireX Team',
