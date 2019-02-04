@@ -1,0 +1,10 @@
+
+steps:
+- name: gcr.io/cloud-builders/git
+  args: ['clone', 'https://github.com/FireXStuff/firexkit.git']
+  dir: 'new_install'
+- name: gcr.io/$PROJECT_ID/firex-alpine-build
+  args: ['python3', 'firexkit/build.py']
+- name: gcr.io/cloud-builders/gsutil
+  args: ['rsync', '-r', 'html', 'gs://www.firexkit.com']
+  dir: 'new_install'
