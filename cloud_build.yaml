@@ -4,7 +4,7 @@ steps:
   args: ['clone', 'https://github.com/FireXStuff/firexkit.git']
   dir: 'new_install'
 - name: gcr.io/$PROJECT_ID/firex-alpine-build
-  args: ['/bin/ls']
+  args: ['/bin/ls', 'firexkit']
   dir: 'new_install'
 - name: gcr.io/$PROJECT_ID/firex-alpine-build
   args: ['python3', 'firexkit/build.py']
