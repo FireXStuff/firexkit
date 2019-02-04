@@ -1,14 +1,6 @@
 from setuptools import setup
-import os
 import versioneer
 
-# Determine the build number
-build_file = os.path.join(os.path.dirname(__file__), "BUILD")
-if os.path.exists(build_file):
-    with open(build_file) as f:
-        version_num = f.read()
-else:
-    version_num = "dev"
 
 setup(name='firexkit',
       version=versioneer.get_version(),

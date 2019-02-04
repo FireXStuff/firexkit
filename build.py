@@ -3,12 +3,7 @@ from subprocess import check_call
 import os
 
 
-def build(workspace='.', build_number=None, twine_username=None, upload=False):
-
-    if build_number:
-        print('--> Writing BUILD number')
-        with open(os.path.join(workspace, 'BUILD'), 'w') as f:
-            f.write(build_number)
+def build(workspace='.', twine_username=None, upload=False):
 
     print('--> Remove any old build or sdist folders')
     for subfolder in ['build', 'dist']:
@@ -43,14 +38,12 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description="Aggregate cflow data and generate report")
     parser.add_argument('--workspace', default='.')
-    parser.add_argument('--build_number')
     parser.add_argument('--twine_username', default='firexdev')
     parser.add_argument('--upload', action='store_true')
 
     args, unknown = parser.parse_known_args()
 
     build(workspace=args.workspace,
-          build_number=args.build_number,
           twine_username=args.twine_username,
           upload=args.upload)
 
