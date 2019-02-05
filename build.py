@@ -1,5 +1,5 @@
 import shutil
-from subprocess import check_call
+from subprocess import check_call, check_output
 import os
 
 
@@ -22,11 +22,13 @@ def build(workspace='.', twine_username=None, upload=False):
     check_call(['pip3', 'install', wheel], cwd=workspace)
 
     print('--> Run unit-tests and coverage')
-    check_call(['coverage', 'run', '--branch', '--omit', '*/lib/*', '-m', 'unittest', 'discover',
+    check_call(['coverage', 'run', '--branch', '--omit', '*/lib/*,firexkit/_version.py', '-m', 'unittest', 'discover',
                 '-s', 'test/', '-p', '*_tests.py'], cwd=workspace)
 
+    git_hash = check_output(['git', 'rev-parse', '--short', 'HEAD']).decode().strip()
+
     print('--> Generate the coverage html')
-    check_call(['coverage', 'html', '-d', './coverage'], cwd=workspace)
+    check_call(['coverage', 'html', '-d', './coverage', '--title', 'Code Coverage for %s' % git_hash], cwd=workspace)
 
     if upload and twine_username:
         print('--> Uploading pip package')
