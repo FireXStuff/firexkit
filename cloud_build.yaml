@@ -11,7 +11,7 @@ steps:
 artifacts:
   objects:
     location: 'gs://coverage.firexkit.com'
-    paths: ['new_install/firexkit/coverage']
+    paths: ['new_install/firexkit/coverage/*']
 
 substitutions:
   _UPLOAD: ''
