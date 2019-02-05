@@ -8,6 +8,9 @@ steps:
   dir: 'new_install/firexkit'
   secretEnv: ['TWINE_PASSWORD']
  
+ substitutions:
+    _UPLOAD: ''
+    
  options:
     substitution_option: 'ALLOW_LOOSE'
 
