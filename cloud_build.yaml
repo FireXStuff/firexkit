@@ -2,16 +2,16 @@
 steps:
 - name: gcr.io/cloud-builders/git
   args: ['clone', 'https://github.com/FireXStuff/firexkit.git']
-  dir: 'new_install'
+  dir: '$BUILD_ID'
 - name: gcr.io/$PROJECT_ID/firex-alpine-build
   args: ['python3', 'build.py', '${_UPLOAD}']
-  dir: 'new_install/firexkit'
+  dir: '$BUILD_ID/firexkit'
   secretEnv: ['TWINE_PASSWORD']
 
 artifacts:
   objects:
     location: 'gs://coverage.firexkit.com'
-    paths: ['new_install/firexkit/coverage/*']
+    paths: ['$BUILD_ID/firexkit/coverage/*']
 
 substitutions:
   _UPLOAD: ''
