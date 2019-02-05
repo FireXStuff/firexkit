@@ -8,6 +8,11 @@ steps:
   dir: 'new_install/firexkit'
   secretEnv: ['TWINE_PASSWORD']
 
+artifacts:
+  objects:
+    location: 'gs://coverage.firexkit.com'
+    paths: ['new_install/firexkit/coverage']
+
 substitutions:
   _UPLOAD: ''
 
