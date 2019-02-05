@@ -11,9 +11,6 @@ steps:
 substitutions:
   _UPLOAD: 'False'
 
-options:
-  substitution_option: 'ALLOW_LOOSE'
-
 secrets:
 - kmsKeyName: projects/firex-kit-documentation/locations/global/keyRings/secrets/cryptoKeys/TWINE_PASSWORD
   secretEnv:
