@@ -4,7 +4,7 @@ steps:
   args: ['clone', 'https://github.com/FireXStuff/firexkit.git']
   dir: 'new_install'
 - name: gcr.io/$PROJECT_ID/firex-alpine-build
-  args: ['python3', 'build.py' --upload=${_UPLOAD}']
+  args: ['python3', 'build.py', '--upload=${_UPLOAD}']
   dir: 'new_install/firexkit'
   secretEnv: ['TWINE_PASSWORD']
 
