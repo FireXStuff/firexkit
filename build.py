@@ -30,7 +30,7 @@ def build(workspace='.', twine_username=None, upload=False):
 
     if upload and twine_username:
         print('--> Uploading pip package')
-        check_call(['twine', 'upload', '--username', twine_username, wheel], cwd=workspace)
+        check_call(['twine', 'upload', '--username', twine_username, 'dist/*'], cwd=workspace)
 
 
 if __name__ == '__main__':
