@@ -9,6 +9,6 @@ steps:
   secretEnv: ['TWINE_PASSWORD']
 
 secrets:
-- kmsKeyName: projects/$PROJECT_ID/locations/global/keyRings/secrets/cryptoKeys/TWINE_PASSWORD
+- kmsKeyName: projects/firex-kit-documentation/locations/global/keyRings/secrets/cryptoKeys/TWINE_PASSWORD
   secretEnv:
     TWINE_PASSWORD: 'CiQAI+bsJW9Y/MnB0p6Bh5v024AN4y/qIuQ+PhqJgXqL09aZ/pcSOwDnI0hglFLth7NpM1hoDxgeN7xYAEO70MV+DbbPSjMOeHipmhpuuMQqysToG9makxSFSfzZUeg4tGGM'
