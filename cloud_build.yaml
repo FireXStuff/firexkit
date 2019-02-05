@@ -11,4 +11,4 @@ steps:
 secrets:
 - kmsKeyName: projects/firex-kit-documentation/locations/global/keyRings/secrets/cryptoKeys/TWINE_PASSWORD
   secretEnv:
-    TWINE_PASSWORD: 'CiQAI+bsJW9Y/MnB0p6Bh5v024AN4y/qIuQ+PhqJgXqL09aZ/pcSOwDnI0hglFLth7NpM1hoDxgeN7xYAEO70MV+DbbPSjMOeHipmhpuuMQqysToG9makxSFSfzZUeg4tGGM'
+    TWINE_PASSWORD: 'CiQAI+bsJfbKBVxA+tOJAGnHIJRG0zFyUbzjvBx3S0BSF0T3UdUSOgDnI0hgPR5iY1f1pYZJUaPASEjviB8mzBIlAEI0LSMy+r9FUOIKIPDTO4lQN8BWsq3ksNAhe8f5aKA='
