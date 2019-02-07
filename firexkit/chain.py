@@ -169,5 +169,21 @@ def _enqueue(self, block=False, raise_exception_on_failure=True, caller_task=Non
     return result
 
 
+def set_label(sig: Signature, label):
+    sig.label = label
+
+
+def get_label(sig: Signature):
+    try:
+        return sig.label
+    except AttributeError:
+        try:
+            return '|'.join([task.name for task in sig.tasks])
+        except AttributeError:
+            return sig.name
+
+
+Signature.set_label = set_label
+Signature.get_label = get_label
 Signature.enqueue = _enqueue
 chain.enqueue = _enqueue

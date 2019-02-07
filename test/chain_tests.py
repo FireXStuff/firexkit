@@ -374,3 +374,46 @@ class InjectArgsTest(unittest.TestCase):
             c = InjectArgs(**kwargs)
             c |= InjectArgs(sleep=None)
             c |= injected_task2.s()
+
+
+class LabelTests(unittest.TestCase):
+    def test_labels(self):
+        test_app = Celery()
+
+        @test_app.task(base=FireXTask)
+        def task1():
+            pass  # pragma: no cover
+
+        @test_app.task(base=FireXTask)
+        def task2():
+            pass  # pragma: no cover
+
+        with self.subTest('InjectArgs with one task and default label'):
+            c = InjectArgs() | task1.s()
+            self.assertEqual(c.get_label(), task1.name)
+
+        with self.subTest('One Task with default label'):
+            c = task1.s()
+            self.assertEqual(c.get_label(), task1.name)
+
+        with self.subTest('Two Tasks with default label'):
+            c = task1.s() | task2.s()
+            self.assertEqual(c.get_label(), '|'.join([task1.name, task2.name]))
+
+        with self.subTest('InjectArgs with one task and label'):
+            c = InjectArgs() | task1.s()
+            label = 'something'
+            c.set_label(label)
+            self.assertEqual(c.get_label(), label)
+
+        with self.subTest('One task with label'):
+            c = task1.s()
+            label = 'something'
+            c.set_label(label)
+            self.assertEqual(c.get_label(), label)
+
+        with self.subTest('Two tasks with label'):
+            c = task1.s() | task2.s()
+            label = 'something'
+            c.set_label(label)
+            self.assertEqual(c.get_label(), label)
