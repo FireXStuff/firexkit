@@ -170,13 +170,13 @@ def _enqueue(self, block=False, raise_exception_on_failure=True, caller_task=Non
 
 
 def set_label(sig: Signature, label):
-    sig.label = label
+    sig.set(label=label)
 
 
 def get_label(sig: Signature):
     try:
-        return sig.label
-    except AttributeError:
+        return sig.options['label']
+    except KeyError:
         try:
             return '|'.join([task.name for task in sig.tasks])
         except AttributeError:
