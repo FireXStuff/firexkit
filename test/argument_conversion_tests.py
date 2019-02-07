@@ -34,7 +34,6 @@ class ArgConversionTests(unittest.TestCase):
         self.assertTrue('converter_str_dependency' in converted)
         self.assertTrue('converter_list_dependency' in converted)
 
-        test_input_converter.pre_load_was_run = False
         with self.assertRaises(MissingConverterDependencyError):
             @test_input_converter.register('Nope')
             def missing_dependent(_):
@@ -273,3 +272,15 @@ class ArgConversionTests(unittest.TestCase):
             raise NotImplementedError("Go boom")
         with self.assertRaises(ArgumentConversionException):
             test_input_converter.convert(**{"match": True})
+
+        with self.assertRaises(ConverterRegistrationException):
+            @test_input_converter.register
+            @SingleArgDecorator
+            def forgot_brackets(_):
+                pass  # pragma: no cover
+
+        with self.assertRaises(ConverterRegistrationException):
+            @test_input_converter.register
+            @SingleArgDecorator()
+            def forgot_the_arg(_):
+                pass  # pragma: no cover

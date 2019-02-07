@@ -212,6 +212,12 @@ class SingleArgDecorator(object):
         """
         :param args: A lists of argument names for which this converter applies
         """
+        if not args:
+            raise ConverterRegistrationException("SingleArgDecorator requires at least one argument name")
+        for arg in args:
+            if type(arg) is not str:
+                raise ConverterRegistrationException("SingleArgDecorator takes strings as inputs")
+
         self.args = args
 
     def __call__(self, fn):
