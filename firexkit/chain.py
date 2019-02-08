@@ -93,22 +93,22 @@ def _inject_args_into_signature(sig, **kwargs):
 Signature.injectArgs = _inject_args_into_signature
 
 
-def verify_chain_arguments(chain_of_tasks: Union[chain, Signature]):
+def verify_chain_arguments(sig: Signature):
     """
     Verifies that the chain is not missing any parameters. Asserts if any parameters are missing, or if a
     reference parameter (@something) has not provider
     """
     try:
-        tasks = chain_of_tasks.tasks
+        tasks = sig.tasks
     except AttributeError:
-        tasks = [chain_of_tasks]
+        tasks = [sig]
 
     missing = {}
     previous = set()
     ref_args = {}
     undefined_indirect = {}
     for task in tasks:
-        task_obj = chain_of_tasks.app.tasks[task.task]
+        task_obj = sig.app.tasks[task.task]
         partial_bound = set(signature(task_obj.run).bind_partial(*task.args).arguments.keys())
         kwargs_keys = set(task.kwargs.keys()) | {'args', 'kwargs'}
 
@@ -186,4 +186,3 @@ def get_label(sig: Signature):
 Signature.set_label = set_label
 Signature.get_label = get_label
 Signature.enqueue = _enqueue
-chain.enqueue = _enqueue
