@@ -9,7 +9,11 @@ logger = get_task_logger(__name__)
 
 
 def get_task_name_from_result(result):
-    backend = result.app.backend
+    try:
+        backend = result.app.backend
+    except AttributeError:
+        from celery import current_app
+        backend = current_app.backend
     name = backend.get(str(result))
     if name is None:
         name = ''
