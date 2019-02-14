@@ -9,7 +9,7 @@ from celery.utils.log import get_task_logger
 from firexkit.revoke import revoke_recursively
 from firexkit.bag_of_goodies import BagOfGoodies
 from firexkit.argument_conversion import ConverterRegister
-from firexkit.result import wait_on_async_results, get_tasks_names_from_results
+from firexkit.result import wait_on_async_results, get_tasks_names_from_results, wait_for_any_results
 
 logger = get_task_logger(__name__)
 
@@ -159,6 +159,12 @@ class FireXTask(Task):
             logger.debug('Waiting for enqueued children: %r' % get_tasks_names_from_results(child_results))
             wait_on_async_results(child_results, caller_task=self, **kwargs)
             [self._update_child_state(child_result, self._UNBLOCKED) for child_result in child_results]
+
+    def wait_for_any_children(self, pending_only=True, **kwargs):
+        child_results = self.pending_enqueued_children if pending_only else self.enqueued_children
+        for completed_child_result in wait_for_any_results(child_results, **kwargs):
+            self._update_child_state(completed_child_result, self._UNBLOCKED)
+            yield completed_child_result
 
     def enqueue_child(self, chain, add_to_enqueued_children=True, **kwargs):
         """Schedule a child task to run"""

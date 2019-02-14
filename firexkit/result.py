@@ -117,6 +117,26 @@ def wait_on_async_results(results, max_wait=None, depth=1, callbacks: [WaitLoopC
                                           sleep_between_iterations=sleep_between_iterations)
 
 
+# This is a generator that returns one AsyncResult as it completes
+def wait_for_any_results(results, max_trials=None, max_wait=0.1, **kwargs):
+    if isinstance(results, AsyncResult):
+        results = [results]
+    trials = 0
+    while len(results):
+        if max_trials and trials >= max_trials:
+            raise WaitOnChainTimeoutError(msg='Results %r were still not ready after %d trials' % (results, max_trials))
+        for result in results:
+            try:
+                wait_on_async_results([result], max_wait=max_wait, **kwargs)
+            except WaitOnChainTimeoutError:
+                pass
+            else:
+                yield result
+                results.remove(result)
+                break
+        trials += 1
+
+
 class WaitOnChainTimeoutError(Exception):
     pass
 
