@@ -1,2 +1,2 @@
-# firexkit
+# FirexKit
 
