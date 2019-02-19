@@ -122,23 +122,22 @@ def wait_on_async_results(results, max_wait=None, depth=1, callbacks: [WaitLoopC
 
 
 # This is a generator that returns one AsyncResult as it completes
-def wait_for_any_results(results, max_trials=None, max_wait=0.1, **kwargs):
+def wait_for_any_results(results, max_wait=None, poll_max_wait=0.1, **kwargs):
     if isinstance(results, AsyncResult):
         results = [results]
-    trials = 0
+    start_time = time.time()
     while len(results):
-        if max_trials and trials >= max_trials:
-            raise WaitOnChainTimeoutError(msg='Results %r were still not ready after %d trials' % (results, max_trials))
+        if max_wait and max_wait < time.time() - start_time:
+            raise WaitOnChainTimeoutError('Results %r were still not ready after %d seconds' % (results, max_wait))
         for result in results:
             try:
-                wait_on_async_results([result], max_wait=max_wait, **kwargs)
+                wait_on_async_results([result], max_wait=poll_max_wait, **kwargs)
             except WaitOnChainTimeoutError:
                 pass
             else:
                 yield result
                 results.remove(result)
                 break
-        trials += 1
 
 
 class WaitOnChainTimeoutError(Exception):
