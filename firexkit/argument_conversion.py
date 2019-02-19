@@ -161,7 +161,7 @@ class ConverterRegister:
         if func:
             # this is the case where decorator is used WITHOUT parenthesis
             # @InputConverter.register
-            self.check_not_registered(func)
+            self._check_not_registered(func, converters)
             converters[func.__name__] = self._ConvertNode(func=func, dependencies=[])
             return func
 
@@ -170,16 +170,17 @@ class ConverterRegister:
         def _wrapped_register(fn):
             if not callable(fn):
                 raise ConverterRegistrationException("A converter must be callable")
-            self.check_not_registered(fn)
+            self._check_not_registered(fn, converters)
             converters[fn.__name__] = self._ConvertNode(func=fn, dependencies=dependencies)
             return fn
         return _wrapped_register
 
-    def check_not_registered(self, func):
+    @staticmethod
+    def _check_not_registered(func, converters):
         if callable(func):
             func = func.__name__
 
-        if func in self._pre_converters or func in self._post_converters:
+        if func in converters:
             raise NameDuplicationException("Converter %s is already registered. Please define a unique name" % func)
 
     @classmethod
@@ -245,6 +246,7 @@ class SingleArgDecorator(object):
         def append(*args):
             self.args.extend(args)
         validator_decorator.append = append
+        validator_decorator.single_arg_decorator = self
 
         return validator_decorator
 

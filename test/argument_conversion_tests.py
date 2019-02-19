@@ -238,7 +238,7 @@ class ArgConversionTests(unittest.TestCase):
                 pass  # pragma: no cover
 
         with self.assertRaises(NameDuplicationException):
-            test_input_converter.check_not_registered("go_boom")
+            test_input_converter._check_not_registered("go_boom", {"go_boom": go_boom})
 
     def test_single_arg_converter(self):
         test_input_converter = ConverterRegister()
