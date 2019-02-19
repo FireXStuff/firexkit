@@ -169,6 +169,21 @@ def _enqueue(self, block=False, raise_exception_on_failure=True, caller_task=Non
     return result
 
 
+def set_attr(sig: Signature, **options):
+    try:
+        [task.set(**options) for task in sig.tasks]
+    except AttributeError:
+        sig.set(**options)
+
+
+def set_priority(sig: Signature, priority):
+    set_attr(sig, priority=priority)
+
+
+def set_queue(sig: Signature, queue):
+    set_attr(sig, queue=queue)
+
+
 def set_label(sig: Signature, label):
     sig.set(label=label)
 
@@ -183,6 +198,8 @@ def get_label(sig: Signature):
             return sig.name
 
 
+Signature.set_priority = set_priority
+Signature.set_queue = set_queue
 Signature.set_label = set_label
 Signature.get_label = get_label
 Signature.enqueue = _enqueue
