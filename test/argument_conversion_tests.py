@@ -284,3 +284,20 @@ class ArgConversionTests(unittest.TestCase):
             @SingleArgDecorator()
             def forgot_the_arg(_):
                 pass  # pragma: no cover
+
+    def test_append_to_single_arg_converter(self):
+        test_input_converter = ConverterRegister()
+
+        @test_input_converter.register
+        @SingleArgDecorator("initial_arg")
+        def flip(arg_value):
+            return not arg_value
+        flip.append("dynamic_arg")
+
+        data = {
+            "initial_arg" : False,
+            "dynamic_arg" : False
+        }
+        result = test_input_converter.convert(**data)
+        self.assertTrue(result["initial_arg"])
+        self.assertTrue(result["dynamic_arg"])

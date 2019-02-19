@@ -218,7 +218,7 @@ class SingleArgDecorator(object):
             if type(arg) is not str:
                 raise ConverterRegistrationException("SingleArgDecorator takes strings as inputs")
 
-        self.args = args
+        self.args = list(args)
 
     def __call__(self, fn):
         @wraps(fn)
@@ -239,6 +239,12 @@ class SingleArgDecorator(object):
                             logger.debug(k + " was converted to None")
                         ret[k] = v
             return ret
+
+        # An append method is a nice addition to allow other modules to add extra args for conversion
+        def append(*args):
+            self.args.extend(args)
+        validator_decorator.append = append
+
         return validator_decorator
 
 
