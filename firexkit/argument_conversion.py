@@ -56,6 +56,7 @@ class ConverterRegister:
         converters = self._pre_converters if pre_task else self._post_converters
 
         for node in self.get_visit_order(pre_task):
+            logger.debug("Running converter " + node)
             start = datetime.now()
             try:
                 converted_dict = converters[node].func(new_kwargs)
@@ -235,8 +236,8 @@ class SingleArgDecorator(object):
                             v = fn(args[k])
                         except Exception as e:
                             raise ArgumentConversionException(k + ": " + str(e)) from None
-                        if v is None and orig_value is not None:
-                            logger.debug(k + " was converted to None")
+                        if v != orig_value:
+                            logger.debug("Argument %s was converted from %s to %s" % (k, str(orig_value), str(v)))
                         ret[k] = v
             return ret
 
