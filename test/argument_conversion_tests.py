@@ -295,8 +295,8 @@ class ArgConversionTests(unittest.TestCase):
         flip.append("dynamic_arg")
 
         data = {
-            "initial_arg" : False,
-            "dynamic_arg" : False
+            "initial_arg": False,
+            "dynamic_arg": False
         }
         result = test_input_converter.convert(**data)
         self.assertTrue(result["initial_arg"])
