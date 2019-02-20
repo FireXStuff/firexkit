@@ -60,7 +60,7 @@ def build_sphinx_docs(workspace):
     check_call(['sphinx-build', '-b', 'html', 'docs', 'html'], cwd=workspace)
 
 def run(workspace='.', skip_build=None, upload_pip=None, upload_pip_if_tag=None, twine_username=None, skip_htmlcov=None, upload_codecov=None, 
-    build_docs=None):
+    skip_docs_build=None):
 
     git_hash, git_tags, files = get_git_hash_tags_and_files(workspace)
 
@@ -78,13 +78,7 @@ def run(workspace='.', skip_build=None, upload_pip=None, upload_pip_if_tag=None,
     if upload_pip or (upload_pip_if_tag and git_tags):
         upload_pip_pkg_to_pypi(twine_username, workspace)
 
-
-    if any(file.startswith('docs/') for file in files):
-        print('Docs were modified, rebuilding docs...')
-        modified_docs = True
-    else:
-        modified_docs = False
-    if modified_docs or build_docs:
+    if not skip_docs_build:
         build_sphinx_docs(workspace)
 
 if __name__ == '__main__':
@@ -98,7 +92,7 @@ if __name__ == '__main__':
     parser.add_argument('--twine_username', default='firexdev')
     parser.add_argument('--skip_htmlcov', action='store_true')
     parser.add_argument('--upload_codecov', action='store_true')
-    parser.add_argument('--build_docs', action='store_true')
+    parser.add_argument('--skip_docs_build', action='store_true')
 
     args, unknown = parser.parse_known_args()
 
