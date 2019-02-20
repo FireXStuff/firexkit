@@ -11,7 +11,7 @@ steps:
 artifacts:
   objects:
     location: 'gs://www.firexkit.com'
-    paths: ['$BUILD_ID/firexkit/html/*']
+    paths: ['$BUILD_ID/firexkit/html/']
 
 secrets:
 - kmsKeyName: projects/firex-kit-documentation/locations/global/keyRings/secrets/cryptoKeys/TWINE_PASSWORD
