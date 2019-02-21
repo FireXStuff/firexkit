@@ -37,13 +37,13 @@ class TaskTests(unittest.TestCase):
                 post_ran = False
                 name = self.__module__ + "." + self.__class__.__name__ + "." + "TestClass"
 
-                def pre_task_run(self, bag_of_goodies: BagOfGoodies):
+                def pre_task_run(self):
                     TestTask.pre_ran = True
 
                 def run(self):
                     TestTask.ran = True
 
-                def post_task_run(self, results, bag_of_goodies: BagOfGoodies):
+                def post_task_run(self, results):
                     TestTask.post_ran = True
 
             test_obj = TestTask()

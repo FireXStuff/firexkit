@@ -47,7 +47,7 @@ class FireXTask(Task):
         raise NotImplementedError('Tasks must define the run method.')
 
     @abstractmethod
-    def pre_task_run(self, bag_of_goodies: BagOfGoodies):
+    def pre_task_run(self):
         """
         Overrideable method to allow subclasses to do something with the
         BagOfGoodies before returning the results
@@ -55,7 +55,7 @@ class FireXTask(Task):
         pass
 
     @abstractmethod
-    def post_task_run(self, results, bag_of_goodies: BagOfGoodies):
+    def post_task_run(self, results):
         """
         Overrideable method to allow subclasses to do something with the
         BagOfGoodies after the task has been run
@@ -80,34 +80,38 @@ class FireXTask(Task):
     def _process_arguments_and_run(self, *args, **kwargs):
         # Organise the input args by creating a BagOfGoodies
         sig = inspect.signature(self.run)
-        bog = BagOfGoodies(sig, args, kwargs)
+        self.bog = BagOfGoodies(sig, args, kwargs)
 
         # run any "pre" converters attached to this task
-        converted = ConverterRegister.task_convert(task_name=self.name, pre_task=True, **bog.get_bag())
-        bog.update(converted)
+        converted = ConverterRegister.task_convert(task_name=self.name, pre_task=True, **self.bag)
+        self.bog.update(converted)
 
-        # give sub-classes a change to do something with the args
-        self.pre_task_run(bog)
+        # give sub-classes a chance to do something with the args
+        self.pre_task_run()
 
-        args, kwargs = bog.split_for_signature()
+        args, kwargs = self.bog.split_for_signature()
         result = super(FireXTask, self).__call__(*args, **kwargs)
 
         # Need to update the dict with the results, if @results was used
         if isinstance(result, dict):
-            bog.update(result)
+            self.bog.update(result)
 
         # run any post converters attached to this task
-        converted = ConverterRegister.task_convert(task_name=self.name, pre_task=False, **bog.get_bag())
-        bog.update(converted)
+        converted = ConverterRegister.task_convert(task_name=self.name, pre_task=False, **self.bag)
+        self.bog.update(converted)
 
         if isinstance(result, dict):
             # update the results with changes from converters
-            result = {k: v for k, v in bog.get_bag().items() if k in result}
+            result = {k: v for k, v in self.bag.items() if k in result}
 
         # give sub-classes a change to do something with the results
-        self.post_task_run(result, bog)
+        self.post_task_run(result)
 
-        return bog.get_bag()
+        return self.bag
+    
+    @property
+    def bag(self) -> dict:
+        return self.bog.get_bag()
 
     @property
     def required_args(self) -> list:
