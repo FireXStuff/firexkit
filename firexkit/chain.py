@@ -1,3 +1,4 @@
+import inspect
 from inspect import signature, getfullargspec
 from functools import wraps
 from typing import Union
@@ -115,7 +116,7 @@ def verify_chain_arguments(sig: Signature):
         if isinstance(task_obj, FireXTask):
             required_args = task_obj.required_args
         else:
-            required_args, _ = parse_signature(task_obj)
+            required_args, _ = parse_signature(inspect.signature(task_obj.run))
 
         missing_params = set(required_args) - (partial_bound | kwargs_keys | previous)
         if missing_params:
