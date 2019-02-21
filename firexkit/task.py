@@ -1,3 +1,4 @@
+from collections import OrderedDict
 import inspect
 from enum import Enum
 from types import MethodType
@@ -32,6 +33,7 @@ class FireXTask(Task):
 
     def __init__(self):
         self.undecorated = undecorate(self)
+        self.sig = inspect.signature(self.run)
         self.return_keys = getattr(self.undecorated, "_return_keys", tuple())
         self._lagging_children_strategy = get_attr_unwrapped(self, 'pending_child_strategy', PendingChildStrategy.Block)
 
@@ -79,8 +81,7 @@ class FireXTask(Task):
 
     def _process_arguments_and_run(self, *args, **kwargs):
         # Organise the input args by creating a BagOfGoodies
-        sig = inspect.signature(self.run)
-        self.bog = BagOfGoodies(sig, args, kwargs)
+        self.bog = BagOfGoodies(self.sig, args, kwargs)
 
         # run any "pre" converters attached to this task
         converted = ConverterRegister.task_convert(task_name=self.name, pre_task=True, **self.bag)
@@ -89,8 +90,7 @@ class FireXTask(Task):
         # give sub-classes a chance to do something with the args
         self.pre_task_run()
 
-        args, kwargs = self.bog.split_for_signature()
-        result = super(FireXTask, self).__call__(*args, **kwargs)
+        result = super(FireXTask, self).__call__(*self.args, **self.kwargs)
 
         # Need to update the dict with the results, if @results was used
         if isinstance(result, dict):
@@ -119,7 +119,7 @@ class FireXTask(Task):
         :return: list of required arguments to the microservice.
         """
         if self._in_required is None:
-            self._in_required, self._in_optional = parse_signature(self)
+            self._in_required, self._in_optional = parse_signature(self.sig)
         return list(self._in_required)
 
     @property
@@ -128,8 +128,46 @@ class FireXTask(Task):
         :return: dict of optional arguments to the microservice, and their values.
         """
         if self._in_required is None:
-            self._in_required, self._in_optional = parse_signature(self)
+            self._in_required, self._in_optional = parse_signature(self.sig)
         return dict(self._in_optional)
+
+    @staticmethod
+    def _get_bound_args(sig, args, kwargs) -> dict:
+        return sig.bind(*args, **kwargs).arguments
+
+    @staticmethod
+    def _get_default_bound_args(sig, bound_args) -> dict:
+        # Find and store the remaining default arguments for debugging purposes
+        default_bound_args = OrderedDict()
+        params = sig.parameters
+        for param in params.values():
+            if param.name not in bound_args:
+                default_bound_args[param.name] = param.default
+        return default_bound_args
+
+    @property
+    def args(self) -> tuple:
+        return self.bog.args
+
+    @property
+    def kwargs(self) -> dict:
+        return self.bog.kwargs
+
+    @property
+    def bound_args(self) -> dict:
+        return self._get_bound_args(self.sig, self.args, self.kwargs)
+
+    @property
+    def default_bound_args(self) -> dict:
+        return self._get_default_bound_args(self.sig, self.bound_args)
+
+    @property
+    def all_args(self) -> dict:
+        return {**self.bound_args, **self.default_bound_args}
+
+    @property
+    def bag_and_args(self) -> dict:
+        return {**self.bag, **self.all_args}
 
     #######################
     # Enqueuing child tasks
@@ -235,11 +273,11 @@ def task_prerequisite(pre_req_task: PromiseProxy, key: str=None, trigger: callab
     return decorator
 
 
-def parse_signature(task: Task)->(set, dict):
+def parse_signature(sig: inspect.Signature)->(set, dict):
     """Parse the run function of a microservice and return required and optional arguments"""
     required = set()
     optional = {}
-    for k, v in inspect.signature(task.run).parameters.items():
+    for k, v in sig.parameters.items():
         default_value = v.default
         if default_value is not inspect.Signature.empty:
             optional[k] = default_value
