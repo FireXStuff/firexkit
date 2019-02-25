@@ -195,22 +195,27 @@ class BagTests(unittest.TestCase):
         t.a_func(*a, **k)
 
 
+# noinspection PyUnusedLocal
 def func_a(x):
     pass  # pragma: no cover
 
 
+# noinspection PyUnusedLocal
 def func_b(x=None):
     pass  # pragma: no cover
 
 
+# noinspection PyUnusedLocal
 def func_c(**kwargs):
     pass  # pragma: no cover
 
 
+# noinspection PyUnusedLocal
 def func_d(x, **kwargs):
     pass  # pragma: no cover
 
 
+# noinspection PyUnusedLocal
 def func_e(x=None, **kwargs):
     pass  # pragma: no cover
 
@@ -345,3 +350,17 @@ class BogTests(unittest.TestCase):
                 self.assertDictEqual(kwargs, {})
                 self.assertDictEqual(bog.get_bag(), {'x': new_value})
 
+    def test_update_masks_default(self):
+        # noinspection PyUnusedLocal
+        def something(argument, parameter="default parameter"):
+            pass  # pragma: no cover
+
+        bog = BagOfGoodies(inspect.signature(something), ("provided argument",), {})
+        updates = {
+                "argument": "converter argument",
+                "parameter": "converter parameter"  # initially the default value would have been used
+            }
+        bog.update(updates)
+        self.assertEqual(bog.get_bag(), updates)
+        self.assertEqual(bog.args, ["converter argument"])
+        self.assertEqual(bog.kwargs, {"parameter": "converter parameter"})

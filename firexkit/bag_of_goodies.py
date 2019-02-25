@@ -79,7 +79,7 @@ class BagOfGoodies(object):
         for k, v in updates.items():
             if k in arguments:
                 arguments[k] = v
-            elif k in self.kwargs or self.varkeyword:
+            elif k in self.sig.parameters or self.varkeyword:
                 self.kwargs[k] = v
         self.args = list(arguments.values())
 
