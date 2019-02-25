@@ -143,3 +143,131 @@ class TaskTests(unittest.TestCase):
             def go_boom():
                 # Should not reach here
                 pass  # pragma: no cover
+
+    def test_properties(self):
+        test_app = Celery()
+
+        # noinspection PyUnusedLocal
+        @test_app.task(base=FireXTask, bind=True)
+        def a(myself, arg1):
+            pass
+
+        # noinspection PyUnusedLocal
+        @test_app.task(base=FireXTask, bind=True)
+        def b(myself, arg1=None):
+            pass
+
+        # noinspection PyUnusedLocal
+        @test_app.task(base=FireXTask, bind=True)
+        def c(myself, arg1, arg2=None):
+            pass
+
+        with self.subTest('One required argument'):
+            value = 1
+            a(value)
+            self.assertListEqual(a.args, [value])
+            self.assertDictEqual(a.kwargs, {})
+            self.assertListEqual(a.required_args, ['arg1'])
+            self.assertDictEqual(a.bound_args, {'arg1': value})
+            self.assertDictEqual(a.default_bound_args, {})
+            self.assertDictEqual(a.all_args, {'arg1': value})
+            self.assertDictEqual(a.bag, {'arg1': value})
+            self.assertDictEqual(a.abog, {'arg1': value})
+
+        with self.subTest('One required argument with keyword'):
+            value = 1
+            a(arg1=value)
+            self.assertListEqual(a.args, [])
+            self.assertDictEqual(a.kwargs, {'arg1': value})
+            self.assertListEqual(a.required_args, ['arg1'])
+            self.assertDictEqual(a.bound_args, {'arg1': value})
+            self.assertDictEqual(a.default_bound_args, {})
+            self.assertDictEqual(a.all_args, {'arg1': value})
+            self.assertDictEqual(a.bag, {'arg1': value})
+            self.assertDictEqual(a.abog, {'arg1': value})
+
+        with self.subTest('One optional argument'):
+            value = 1
+            b(value)
+            self.assertListEqual(b.args, [value])
+            self.assertDictEqual(b.kwargs, {})
+            self.assertListEqual(b.required_args, [])
+            self.assertDictEqual(b.bound_args, {'arg1': value})
+            self.assertDictEqual(b.default_bound_args, {})
+            self.assertDictEqual(b.all_args, {'arg1': value})
+            self.assertDictEqual(b.bag, {'arg1': value})
+            self.assertDictEqual(b.abog, {'arg1': value})
+
+        with self.subTest('One optional argument with no value'):
+            value=None
+            b()
+            self.assertListEqual(b.args, [])
+            self.assertDictEqual(b.kwargs, {})
+            self.assertListEqual(b.required_args, [])
+            self.assertDictEqual(b.bound_args, {})
+            self.assertDictEqual(b.default_bound_args, {'arg1': value})
+            self.assertDictEqual(b.all_args, {'arg1': value})
+            self.assertDictEqual(b.bag, {})
+            self.assertDictEqual(b.abog, {'arg1': value})
+
+        with self.subTest('One optional argument with keyword'):
+            value = 1
+            b(arg1=value)
+            self.assertListEqual(b.args, [])
+            self.assertDictEqual(b.kwargs, {'arg1': value})
+            self.assertListEqual(b.required_args, [])
+            self.assertDictEqual(b.bound_args, {'arg1': value})
+            self.assertDictEqual(b.default_bound_args, {})
+            self.assertDictEqual(b.all_args, {'arg1': value})
+            self.assertDictEqual(b.bag, {'arg1': value})
+            self.assertDictEqual(b.abog, {'arg1': value})
+
+        with self.subTest('One required and one optional argument '):
+            value1 = 1
+            value2 = 2
+            c(value1, value2)
+            self.assertListEqual(c.args, [value1, value2])
+            self.assertDictEqual(c.kwargs, {})
+            self.assertListEqual(c.required_args, ['arg1'])
+            self.assertDictEqual(c.bound_args, {'arg1': value1,
+                                                'arg2': value2})
+            self.assertDictEqual(c.default_bound_args, {})
+            self.assertDictEqual(c.all_args, {'arg1': value1,
+                                              'arg2': value2})
+            self.assertDictEqual(c.bag, {'arg1': value1,
+                                         'arg2': value2})
+            self.assertDictEqual(c.abog, {'arg1': value1,
+                                          'arg2': value2})
+
+        with self.subTest('One required and one optional argument with keyword'):
+            value1 = 1
+            value2 = 2
+            c(arg2=value2, arg1=value1)
+            self.assertListEqual(c.args, [])
+            self.assertDictEqual(c.kwargs, {'arg1': value1,
+                                            'arg2': value2})
+            self.assertListEqual(c.required_args, ['arg1'])
+            self.assertDictEqual(c.bound_args, {'arg1': value1,
+                                                'arg2': value2})
+            self.assertDictEqual(c.default_bound_args, {})
+            self.assertDictEqual(c.all_args, {'arg1': value1,
+                                              'arg2': value2})
+            self.assertDictEqual(c.bag, {'arg1': value1,
+                                         'arg2': value2})
+            self.assertDictEqual(c.abog, {'arg1': value1,
+                                          'arg2': value2})
+
+        with self.subTest('One required, one optional provided'):
+            value1 = 1
+            value2 = None
+            c(value1)
+            self.assertListEqual(c.args, [value1])
+            self.assertDictEqual(c.kwargs, {})
+            self.assertListEqual(c.required_args, ['arg1'])
+            self.assertDictEqual(c.bound_args, {'arg1': value1})
+            self.assertDictEqual(c.default_bound_args, {'arg2': value2})
+            self.assertDictEqual(c.all_args, {'arg1': value1,
+                                              'arg2': value2})
+            self.assertDictEqual(c.bag, {'arg1': value1})
+            self.assertDictEqual(c.abog, {'arg1': value1,
+                                          'arg2': value2})

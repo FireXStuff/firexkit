@@ -146,7 +146,7 @@ class FireXTask(Task):
         return default_bound_args
 
     @property
-    def args(self) -> tuple:
+    def args(self) -> list:
         return self.bog.args
 
     @property
@@ -166,7 +166,7 @@ class FireXTask(Task):
         return {**self.bound_args, **self.default_bound_args}
 
     @property
-    def bag_and_args(self) -> dict:
+    def abog(self) -> dict:
         return {**self.bag, **self.all_args}
 
     #######################
