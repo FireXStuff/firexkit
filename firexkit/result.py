@@ -121,6 +121,17 @@ def wait_on_async_results(results, max_wait=None, depth=1, callbacks: [WaitLoopC
                                           sleep_between_iterations=sleep_between_iterations)
 
 
+def wait_on_async_result_and_maybe_raise(result, raise_exception_on_failure=True, caller_task=None):
+    try:
+        wait_on_async_results(results=result, caller_task=caller_task)
+        logger.debug(get_result_logging_name(result) + ' completed. Unblocking.')
+        if result.failed():
+            raise ChainInterruptedException(get_result_logging_name(result))
+    except ChainInterruptedException:
+        if raise_exception_on_failure:
+            raise
+
+
 # This is a generator that returns one AsyncResult as it completes
 def wait_for_any_results(results, max_wait=None, poll_max_wait=0.1, **kwargs):
     if isinstance(results, AsyncResult):

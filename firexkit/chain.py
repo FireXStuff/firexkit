@@ -7,7 +7,7 @@ from celery.canvas import chain, Signature
 from celery.local import PromiseProxy
 from celery.utils.log import get_task_logger
 
-from firexkit.result import ChainInterruptedException, wait_on_async_results, get_result_logging_name
+from firexkit.result import wait_on_async_result_and_maybe_raise
 from firexkit.bag_of_goodies import BagOfGoodies
 from firexkit.task import parse_signature, FireXTask, get_attr_unwrapped, undecorate
 
@@ -158,15 +158,9 @@ def _enqueue(self, block=False, raise_exception_on_failure=True, caller_task=Non
     verify_chain_arguments(self)
     result = self.delay()
     if block:
-        try:
-            wait_on_async_results(result, caller_task=caller_task)
-            logger.debug(get_result_logging_name(result) + ' completed. Unblocking.')
-            if result.failed():
-                raise ChainInterruptedException(get_result_logging_name(result))
-        except ChainInterruptedException:
-            if raise_exception_on_failure:
-                raise
-
+        wait_on_async_result_and_maybe_raise(result=result,
+                                             raise_exception_on_failure=raise_exception_on_failure,
+                                             caller_task=caller_task)
     return result
 
 
