@@ -161,17 +161,14 @@ class FireXTask(Task):
     def default_bound_args(self) -> dict:
         return self._get_default_bound_args(self.sig, self.bound_args)
 
-    @classmethod
-    def bind_args_to_task(cls, sig, *args, **kwargs):
-        b = BagOfGoodies(sig, *args, **kwargs)
+    def map_input_args_kwargs(self, *args, **kwargs):
+        b = BagOfGoodies(self.sig, *args, **kwargs)
         return b.args, b.kwargs
 
-    @classmethod
-    def get_all_args_of_task(cls, task_or_signature, *args, **kwargs):
-        sig = task_or_signature if isinstance(task_or_signature, inspect.Signature) else task_or_signature.sig
-        args, kwargs = cls.bind_args_to_task(sig, args, kwargs)
-        bound_args = cls._get_bound_args(sig, args, kwargs)
-        default_bound_args = cls._get_default_bound_args(sig, bound_args)
+    def map_args(self, *args, **kwargs):
+        args, kwargs = self.map_input_args_kwargs(args, kwargs)
+        bound_args = self._get_bound_args(self.sig, args, kwargs)
+        default_bound_args = self._get_default_bound_args(self.sig, bound_args)
         return {**bound_args, **default_bound_args}
 
     @property
@@ -312,7 +309,4 @@ def get_attr_unwrapped(fun: callable, attr_name, *default_value):
         return default_value[0]
     raise AttributeError(attr_name)
 
-
-def get_all_args_of_task(task_or_signature, *args, **kwargs):
-    return FireXTask.get_all_args_of_task(task_or_signature, *args, **kwargs)
 
