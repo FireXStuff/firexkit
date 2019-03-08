@@ -3,9 +3,8 @@ import unittest
 from celery import Celery
 
 from firexkit.argument_conversion import ConverterRegister
-from firexkit.bag_of_goodies import BagOfGoodies
 from firexkit.chain import returns
-from firexkit.task import FireXTask, task_prerequisite
+from firexkit.task import FireXTask, task_prerequisite, get_all_args_of_task
 
 
 class TaskTests(unittest.TestCase):
@@ -271,3 +270,74 @@ class TaskTests(unittest.TestCase):
             self.assertDictEqual(c.bag, {'arg1': value1})
             self.assertDictEqual(c.abog, {'arg1': value1,
                                           'arg2': value2})
+
+    def test_sig_bind(self):
+        test_app = Celery()
+
+        # noinspection PyUnusedLocal
+        @test_app.task(base=FireXTask, bind=True)
+        def a(myself, arg1):
+            pass
+
+        # noinspection PyUnusedLocal
+        @test_app.task(base=FireXTask, bind=True)
+        def b(myself, arg1=None):
+            pass
+
+        # noinspection PyUnusedLocal
+        @test_app.task(base=FireXTask, bind=True)
+        def c(myself, arg1, arg2=None):
+            pass
+
+        with self.subTest():
+            value = 1
+            r = get_all_args_of_task(a, value)
+            expected_result = {'arg1': value}
+            self.assertDictEqual(r, expected_result)
+
+        with self.subTest():
+            with self.assertRaises(TypeError):
+                get_all_args_of_task(a)
+
+        with self.subTest():
+            input_args = {'arg1': 1}
+            r = get_all_args_of_task(a, **input_args)
+            self.assertDictEqual(r, input_args)
+
+        with self.subTest():
+            expected_result = {'arg1': 1}
+            other = {'arg2': 2}
+            input_args = {**expected_result, **other}
+            r = get_all_args_of_task(a, **input_args)
+            self.assertDictEqual(r, expected_result)
+
+        with self.subTest():
+            expected_result = {'arg1': None}
+            r = get_all_args_of_task(b)
+            self.assertDictEqual(r, expected_result)
+
+        with self.subTest():
+            input_relevant = {'arg1': 1}
+            other = {'arg3': 3}
+            input_args = {**input_relevant, **other}
+            r = get_all_args_of_task(c, **input_args)
+            default = {'arg2': None}
+            expected_result = {**input_relevant, **default}
+            self.assertDictEqual(r, expected_result)
+
+        with self.subTest():
+            input_args = {'arg1': 1, 'arg2': 2}
+            r = get_all_args_of_task(c, **input_args)
+            self.assertDictEqual(r, input_args)
+
+        with self.subTest():
+            value = 1
+            input_args = {'arg2': 2}
+            r = get_all_args_of_task(c, value, **input_args)
+            expected_result = {'arg1': value, **input_args}
+            self.assertDictEqual(r, expected_result)
+
+        with self.subTest():
+            input_args = {'arg2': 2}
+            with self.assertRaises(TypeError):
+                get_all_args_of_task(c, **input_args)
