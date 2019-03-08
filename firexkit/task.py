@@ -161,11 +161,11 @@ class FireXTask(Task):
     def default_bound_args(self) -> dict:
         return self._get_default_bound_args(self.sig, self.bound_args)
 
-    def map_input_args_kwargs(self, *args, **kwargs):
+    def map_input_args_kwargs(self, *args, **kwargs) -> ((), {}):
         b = BagOfGoodies(self.sig, *args, **kwargs)
         return b.args, b.kwargs
 
-    def map_args(self, *args, **kwargs):
+    def map_args(self, *args, **kwargs) -> dict:
         args, kwargs = self.map_input_args_kwargs(args, kwargs)
         bound_args = self._get_bound_args(self.sig, args, kwargs)
         default_bound_args = self._get_default_bound_args(self.sig, bound_args)
