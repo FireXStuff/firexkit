@@ -3,4 +3,5 @@ branch = True
 omit = 
     */lib/*
     */_version.py
+    */tests/*
 
