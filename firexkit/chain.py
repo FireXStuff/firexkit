@@ -9,8 +9,7 @@ from celery.utils.log import get_task_logger
 
 from firexkit.result import wait_on_async_result_and_maybe_raise
 from firexkit.bag_of_goodies import BagOfGoodies
-from firexkit.task import parse_signature, FireXTask, get_attr_unwrapped, undecorate
-
+from firexkit.task import parse_signature, FireXTask, undecorate, ReturnsCodingException, get_attr_unwrapped
 
 logger = get_task_logger(__name__)
 
@@ -33,37 +32,20 @@ def returns(*args):
         undecorated = func
         while hasattr(undecorated, '__wrapped__'):
             undecorated = undecorated.__wrapped__
-        undecorated._out = set(args)
-        undecorated._return_keys = args
+        undecorated._decorated_return_keys = args
 
         # Return a dictionary mapping the tuple returned by the original function
         # to the keys specified by the arguments to the @returns decorator
         @wraps(func)
         def returns_wrapper(*orig_args, **orig_kwargs)->dict:
             result = func(*orig_args, **orig_kwargs)
-            if type(result) != tuple and isinstance(result, tuple):
-                # handle named tuples, they are a result, not all the results
-                result = (result,)
-
-            no_expected_keys = len(args)
-            if isinstance(result, tuple):
-                if len(result) != no_expected_keys:
-                    raise ReturnsCodingException('Expected %d keys in @returns, got %d' %
-                                                 (no_expected_keys, len(result)))
-                result = dict(zip(args, result))
-            else:
-                if no_expected_keys != 1:
-                    raise ReturnsCodingException('Expected one key in @returns')
-                result = {args[0]: result}
-            return result
+            return FireXTask.convert_returns_to_dict(undecorated._decorated_return_keys, result)
 
         return returns_wrapper
 
     return decorator
 
 
-class ReturnsCodingException(Exception):
-    pass
 
 
 class InjectArgs(object):
@@ -125,9 +107,12 @@ def verify_chain_arguments(sig: Signature):
         previous |= (partial_bound | kwargs_keys)
         # get @returns for next loop
         try:
-            previous |= get_attr_unwrapped(task_obj, '_out')
+            previous |= set(task_obj.return_keys)
         except AttributeError:
-            pass
+            try:
+                previous |= set(get_attr_unwrapped(task_obj, '_decorated_return_keys'))
+            except AttributeError:
+                pass
 
         # check for validity of reference values (@ arguments) that are consumed by this microservice
         necessary_args = getfullargspec(undecorate(task_obj)).args

@@ -26,6 +26,10 @@ class PendingChildStrategy(Enum):
     Continue = 2
 
 
+class ReturnsCodingException(Exception):
+    pass
+
+
 class FireXTask(Task):
     """
     Task object that facilitates passing of arguments and return values from one task to another, to be used in chains
@@ -34,7 +38,12 @@ class FireXTask(Task):
     def __init__(self):
         self.undecorated = undecorate(self)
         self.sig = inspect.signature(self.run)
-        self.return_keys = getattr(self.undecorated, "_return_keys", tuple())
+        self._decorated_return_keys = getattr(self.undecorated, "_decorated_return_keys", tuple())
+        self._task_return_keys = self.get_task_return_keys()
+        if self._decorated_return_keys and self._task_return_keys:
+            raise ReturnsCodingException("You can't specify both a @returns decorator and a returns in the app task")
+        self.return_keys = self._decorated_return_keys or self._task_return_keys
+
         self._lagging_children_strategy = get_attr_unwrapped(self, 'pending_child_strategy', PendingChildStrategy.Block)
 
         super(FireXTask, self).__init__()
@@ -43,6 +52,35 @@ class FireXTask(Task):
         self._in_optional = None
 
         self._enqueued_children = {}
+
+    def get_task_return_keys(self):
+        task_return_keys = get_attr_unwrapped(self, 'returns', tuple())
+        if task_return_keys:
+            if isinstance(task_return_keys, str):
+                task_return_keys = (task_return_keys, )
+            if len(task_return_keys) != len(set(task_return_keys)):
+                raise ReturnsCodingException("Can't have duplicate return keys")
+            if not isinstance(task_return_keys, tuple):
+                task_return_keys = tuple(task_return_keys)
+        return task_return_keys
+
+    @staticmethod
+    def convert_returns_to_dict(return_keys, result) -> dict:
+        if type(result) != tuple and isinstance(result, tuple):
+            # handle named tuples, they are a result, not all the results
+            result = (result,)
+
+        no_expected_keys = len(return_keys)
+        if isinstance(result, tuple):
+            if len(result) != no_expected_keys:
+                raise ReturnsCodingException('Expected %d keys in @returns,. got %d' %
+                                             (no_expected_keys, len(result)))
+            result = dict(zip(return_keys, result))
+        else:
+            if no_expected_keys != 1:
+                raise ReturnsCodingException('Expected one key in @returns')
+            result = {return_keys[0]: result}
+        return result
 
     def run(self, *args, **kwargs):
         """The body of the task executed by workers."""
@@ -91,6 +129,9 @@ class FireXTask(Task):
         self.pre_task_run()
 
         result = super(FireXTask, self).__call__(*self.args, **self.kwargs)
+
+        if not self._decorated_return_keys and self._task_return_keys:
+            result = self.convert_returns_to_dict(self._task_return_keys, result)
 
         # Need to update the dict with the results, if @results was used
         if isinstance(result, dict):

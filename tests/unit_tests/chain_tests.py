@@ -19,13 +19,19 @@ class ReturnsTests(unittest.TestCase):
         def a_task(the_goods):
             return the_goods
 
-        ret = a_task(the_goods="the_goods")
-        self.assertTrue(type(ret) is dict)
-        self.assertTrue(len(ret) == 2)
-        self.assertTrue("stuff" in ret)
-        self.assertTrue("the_goods" in ret)
-        self.assertEqual("the_goods", ret["the_goods"])
-        self.assertEqual(ret["stuff"], ret["the_goods"])
+        @test_app.task(base=FireXTask, returns=('stuff',))
+        def b_task(the_goods):
+            return the_goods
+
+        for task in [a_task, b_task]:
+            with self.subTest():
+                ret = task(the_goods="the_goods")
+                self.assertTrue(type(ret) is dict)
+                self.assertTrue(len(ret) == 2)
+                self.assertTrue("stuff" in ret)
+                self.assertTrue("the_goods" in ret)
+                self.assertEqual("the_goods", ret["the_goods"])
+                self.assertEqual(ret["stuff"], ret["the_goods"])
 
     def test_bad_returns_code(self):
         test_app = Celery()
@@ -37,6 +43,15 @@ class ReturnsTests(unittest.TestCase):
             def a_task():
                 # Should not reach here
                 pass  # pragma: no cover
+
+        # duplicate keys
+        with self.assertRaises(ReturnsCodingException):
+            @test_app.task(base=FireXTask, returns=("a", "a"))
+            def dup_return():
+                # Should not reach here
+                pass  # pragma: no cover
+            # Need to instantiate the object (otherwise its just a Proxy), hence the next line
+            dup_return.__name__
 
         # @returns above @app.task
         with self.assertRaises(ReturnsCodingException):
@@ -62,6 +77,13 @@ class ReturnsTests(unittest.TestCase):
                 return
             a_task()
 
+        # No actual return
+        with self.assertRaises(ReturnsCodingException):
+            @test_app.task(base=FireXTask, returns=('a', 'b'))
+            def no_returns():
+                return
+            no_returns()
+
         # values returned don't match keys
         with self.assertRaises(ReturnsCodingException):
             @test_app.task(base=FireXTask)
@@ -69,6 +91,22 @@ class ReturnsTests(unittest.TestCase):
             def another_task():
                 return None, None, None
             another_task()
+
+        # values returned don't match keys
+        with self.assertRaises(ReturnsCodingException):
+            @test_app.task(base=FireXTask, returns=('a', 'b'))
+            def and_another_task():
+                return None, None, None
+            and_another_task()
+
+        # Can't use both @returns and returns=
+        with self.assertRaises(ReturnsCodingException):
+            @test_app.task(base=FireXTask, returns=('a'))
+            @returns('a')
+            def double_return():
+                return None
+            # Need to instantiate the object (otherwise its just a Proxy), hence the next line
+            double_return.__name__
 
     def test_returns_and_bind(self):
         test_app = Celery()
@@ -78,16 +116,22 @@ class ReturnsTests(unittest.TestCase):
         def a_task(task_self, the_goods):
             return task_self.name, the_goods
 
-        ret = a_task(the_goods="the_goods")
-        self.assertTrue(type(ret) is dict)
-        self.assertTrue(len(ret) == 3)
-        self.assertTrue("stuff" in ret)
-        self.assertTrue("the_task_name" in ret)
-        self.assertTrue("the_goods" in ret)
-        # noinspection PyTypeChecker
-        self.assertEqual("the_goods", ret["the_goods"])
-        # noinspection PyTypeChecker
-        self.assertEqual(ret["stuff"], ret["the_goods"])
+        @test_app.task(base=FireXTask, bind=True, returns=("the_task_name", "stuff"))
+        def b_task(task_self, the_goods):
+            return task_self.name, the_goods
+
+        for task in [a_task, b_task]:
+            with self.subTest():
+                ret = task(the_goods="the_goods")
+                self.assertTrue(type(ret) is dict)
+                self.assertTrue(len(ret) == 3)
+                self.assertTrue("stuff" in ret)
+                self.assertTrue("the_task_name" in ret)
+                self.assertTrue("the_goods" in ret)
+                # noinspection PyTypeChecker
+                self.assertEqual("the_goods", ret["the_goods"])
+                # noinspection PyTypeChecker
+                self.assertEqual(ret["stuff"], ret["the_goods"])
 
     def test_returns_play_nice_with_decorators(self):
         test_app = Celery()
@@ -117,18 +161,24 @@ class ReturnsTests(unittest.TestCase):
         @returns("named_t")
         def a_task():
             return TestingTuple(thing1=1, thing2="two")
-        ret = a_task()
 
-        # noinspection PyTypeChecker
-        self.assertTrue(type(ret["named_t"]) is TestingTuple)
-        self.assertTrue(type(ret) is dict)
-        self.assertTrue(len(ret) == 1)
-        self.assertTrue("named_t" in ret)
+        @test_app.task(base=FireXTask, returns="named_t")
+        def b_task():
+            return TestingTuple(thing1=1, thing2="two")
 
-        # noinspection PyTypeChecker
-        self.assertEqual(1, ret["named_t"].thing1)
-        # noinspection PyTypeChecker
-        self.assertEqual("two", ret["named_t"].thing2)
+        for task in [a_task, b_task]:
+            with self.subTest():
+                ret = task()
+                # noinspection PyTypeChecker
+                self.assertTrue(type(ret["named_t"]) is TestingTuple)
+                self.assertTrue(type(ret) is dict)
+                self.assertTrue(len(ret) == 1)
+                self.assertTrue("named_t" in ret)
+
+                # noinspection PyTypeChecker
+                self.assertEqual(1, ret["named_t"].thing1)
+                # noinspection PyTypeChecker
+                self.assertEqual("two", ret["named_t"].thing2)
 
 
 class ChainVerificationTests(unittest.TestCase):
@@ -154,12 +204,20 @@ class ChainVerificationTests(unittest.TestCase):
         def task2b(stuff):
             assert stuff  # pragma: no cover
 
+        @test_app.task(base=FireXTask, returns='stuff')
+        def task3():
+            return "the_stuff"  # pragma: no cover
+
         with self.subTest("Celery to Celery"):
             c = chain(task1a.s(), task2a.s())
             verify_chain_arguments(c)
 
         with self.subTest("FireX to Celery"):
             c = chain(task1b.s(), task2b.s())
+            verify_chain_arguments(c)
+
+        with self.subTest("FireX (with app ret) to Celery"):
+            c = chain(task3.s(), task2b.s())
             verify_chain_arguments(c)
 
         with self.subTest("Celery to FireX"):
@@ -206,13 +264,19 @@ class ChainVerificationTests(unittest.TestCase):
         def task1_with_return():
             pass  # pragma: no cover
 
+        @test_app.task(base=FireXTask, returns=set(['stuff']))
+        def task1_with_task_return():
+            pass  # pragma: no cover
+
         # noinspection PyUnusedLocal
         @test_app.task(base=FireXTask)
         def task2needs(thing="@stuff"):
             pass  # pragma: no cover
 
-        c = chain(task1_with_return.s(), task2needs.s())
-        verify_chain_arguments(c)
+        for task in [task1_with_return, task1_with_task_return]:
+            with self.subTest():
+                c = chain(task.s(), task2needs.s())
+                verify_chain_arguments(c)
 
         @test_app.task(base=FireXTask)
         def task1_no_return():
@@ -243,10 +307,17 @@ class ChainVerificationTests(unittest.TestCase):
         def a_task(required, optional="yup"):
             pass  # pragma: no cover
 
-        self.assertEqual(a_task.optional_args, {'optional': "yup"})
-        self.assertEqual(a_task.required_args, ['required'])
-        self.assertEqual(a_task.return_keys, ('take_this',))
-        self.assertEqual(a_task.optional_args, {'optional': "yup"})  # repeat
+        # noinspection PyUnusedLocal
+        @test_app.task(base=FireXTask, returns=['take_this'])
+        def b_task(required, optional="yup"):
+            pass  # pragma: no cover
+
+        for task in [a_task, b_task]:
+            with self.subTest():
+                self.assertEqual(task.optional_args, {'optional': "yup"})
+                self.assertEqual(task.required_args, ['required'])
+                self.assertEqual(task.return_keys, ('take_this',))
+                self.assertEqual(task.optional_args, {'optional': "yup"})  # repeat
 
     def test_chain_assembly_validation(self):
         test_app = Celery()
@@ -257,9 +328,18 @@ class ChainVerificationTests(unittest.TestCase):
         def beginning(start):
             return "pass"  # pragma: no cover
 
+        # noinspection PyUnusedLocal
+        @test_app.task(base=FireXTask, returns='final')
+        def beginning2(start):
+            return "pass"  # pragma: no cover
+
         @test_app.task(base=FireXTask)
         @returns("mildly_amusing")
         def middle_task(very_important):
+            assert very_important  # pragma: no cover
+
+        @test_app.task(base=FireXTask, returns=('mildly_amusing',))
+        def middle_task2(very_important):
             assert very_important  # pragma: no cover
 
         @test_app.task(base=FireXTask)
@@ -267,22 +347,31 @@ class ChainVerificationTests(unittest.TestCase):
         def ending(final, missing):
             assert final, missing  # pragma: no cover
 
-        with self.assertRaises(InvalidChainArgsException):
-            c = beginning.s(start="something") | middle_task.s(very_important="oh_it_is") | ending.s()
-            verify_chain_arguments(c)
+        @test_app.task(base=FireXTask, returns='finished')
+        def ending2(final, missing):
+            assert final, missing  # pragma: no cover
 
-        c = beginning.s(start="something") | middle_task.s(very_important="oh_it_is") | ending.s(missing="not_missing")
-        verify_chain_arguments(c)
-        self.assertIsNotNone(chain)
+        for b, m, e in [[beginning, middle_task, ending],[beginning2, middle_task2, ending2]]:
+            with self.subTest():
+                with self.assertRaises(InvalidChainArgsException):
+                    c = b.s(start="something") | m.s(very_important="oh_it_is") | e.s()
+                    verify_chain_arguments(c)
 
-        with self.assertRaises(InvalidChainArgsException):
-            c2 = beginning.s(start="something") | middle_task.s(very_important="@not_there") | ending.s(
-                missing="not missing")
-            verify_chain_arguments(c2)
+            with self.subTest():
+                c = b.s(start="something") | m.s(very_important="oh_it_is") | e.s(missing="not_missing")
+                verify_chain_arguments(c)
+                self.assertIsNotNone(chain)
 
-        c2 = beginning.s(start="something") | middle_task.s(very_important="@final") | ending.s(missing="not missing")
-        verify_chain_arguments(c2)
-        self.assertIsNotNone(c2)
+            with self.subTest():
+                with self.assertRaises(InvalidChainArgsException):
+                    c2 = b.s(start="something") | m.s(very_important="@not_there") | e.s(
+                        missing="not missing")
+                    verify_chain_arguments(c2)
+
+            with self.subTest():
+                c2 = b.s(start="something") | m.s(very_important="@final") | e.s(missing="not missing")
+                verify_chain_arguments(c2)
+                self.assertIsNotNone(c2)
 
 
 class TaskUtilTests(unittest.TestCase):
@@ -294,10 +383,10 @@ class TaskUtilTests(unittest.TestCase):
             def fun():
                 pass  # pragma: no cover
             with self.assertRaises(AttributeError):
-                get_attr_unwrapped(fun, "_out")
+                get_attr_unwrapped(fun, "_decorated_return_keys")
 
-            self.assertEqual(get_attr_unwrapped(fun, "_out", "yes"), "yes")
-            self.assertEqual(get_attr_unwrapped(fun, "_out", None), None)  # special case
+            self.assertEqual(get_attr_unwrapped(fun, "_decorated_return_keys", "yes"), "yes")
+            self.assertEqual(get_attr_unwrapped(fun, "_decorated_return_keys", None), None)  # special case
 
         with self.subTest("Find attribute"):
             test_app = Celery()
@@ -306,7 +395,7 @@ class TaskUtilTests(unittest.TestCase):
             @returns("stuff")
             def fun():
                 pass  # pragma: no cover
-            self.assertEqual(get_attr_unwrapped(fun, "_out"), {"stuff"})
+            self.assertEqual(get_attr_unwrapped(fun, "_decorated_return_keys"), ("stuff",))
 
 
 class InjectArgsTest(unittest.TestCase):
