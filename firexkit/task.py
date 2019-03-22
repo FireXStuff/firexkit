@@ -88,7 +88,7 @@ class FireXTask(Task):
                 raise ReturnsCodingException('Expected one key in @returns')
             result = {return_keys[0]: result}
 
-        for k in result.keys():
+        for k in tuple(result.keys()):
             if cls.is_dynamic_return(k):
                 v = result.pop(k)
                 if v:
