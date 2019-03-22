@@ -117,7 +117,7 @@ def verify_chain_arguments(sig: Signature):
                 pass
 
         # If any of the previous keys has a dynamic return, then we can't do any validation
-        if any(BagOfGoodies.is_dynamic_return(k) for k in current_task_returns):
+        if any(FireXTask.is_dynamic_return(k) for k in current_task_returns):
             break
 
         # check for validity of reference values (@ arguments) that are consumed by this microservice

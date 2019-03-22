@@ -29,6 +29,8 @@ class PendingChildStrategy(Enum):
 class ReturnsCodingException(Exception):
     pass
 
+class DyanmicReturnsNotADict(Exception):
+    pass
 
 class FireXTask(Task):
     """
@@ -54,6 +56,10 @@ class FireXTask(Task):
 
         self._enqueued_children = {}
 
+    @classmethod
+    def is_dynamic_return(cls, value):
+        return hasattr(value, 'startswith') and value.startswith(cls.DYNAMIC_RETURN)
+
     def get_task_return_keys(self):
         task_return_keys = get_attr_unwrapped(self, 'returns', tuple())
         if task_return_keys:
@@ -65,8 +71,8 @@ class FireXTask(Task):
                 task_return_keys = tuple(task_return_keys)
         return task_return_keys
 
-    @staticmethod
-    def convert_returns_to_dict(return_keys, result) -> dict:
+    @classmethod
+    def convert_returns_to_dict(cls, return_keys, result) -> dict:
         if type(result) != tuple and isinstance(result, tuple):
             # handle named tuples, they are a result, not all the results
             result = (result,)
@@ -81,6 +87,15 @@ class FireXTask(Task):
             if no_expected_keys != 1:
                 raise ReturnsCodingException('Expected one key in @returns')
             result = {return_keys[0]: result}
+
+        for k in result.keys():
+            if cls.is_dynamic_return(k):
+                v = result.pop(k)
+                if v:
+                    if not isinstance(v, dict):
+                        raise DyanmicReturnsNotADict('The value of the dynamic returns %s must be a dictionary.'
+                                                     'Current return value %r is of type %s' % (k, v, type(v).__name__))
+                    result.update(v)
         return result
 
     def run(self, *args, **kwargs):

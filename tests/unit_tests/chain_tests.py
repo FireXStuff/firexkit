@@ -4,8 +4,7 @@ from celery.app.task import Task
 from celery.canvas import chain
 from collections import namedtuple
 
-from firexkit.bag_of_goodies import DyanmicReturnsNotADict
-from firexkit.task import FireXTask, get_attr_unwrapped
+from firexkit.task import FireXTask, get_attr_unwrapped, DyanmicReturnsNotADict
 from firexkit.chain import ReturnsCodingException, returns, verify_chain_arguments, InvalidChainArgsException, \
     InjectArgs
 from functools import wraps
