@@ -107,12 +107,18 @@ def verify_chain_arguments(sig: Signature):
         previous |= (partial_bound | kwargs_keys)
         # get @returns for next loop
         try:
-            previous |= set(task_obj.return_keys)
+            current_task_returns = set(task_obj.return_keys)
+            previous |= current_task_returns
         except AttributeError:
             try:
-                previous |= set(get_attr_unwrapped(task_obj, '_decorated_return_keys'))
+                current_task_returns = set(get_attr_unwrapped(task_obj, '_decorated_return_keys'))
+                previous |= current_task_returns
             except AttributeError:
                 pass
+
+        # If any of the previous keys has a dynamic return, then we can't do any validation
+        if any(BagOfGoodies.is_dynamic_return(k) for k in current_task_returns):
+            break
 
         # check for validity of reference values (@ arguments) that are consumed by this microservice
         necessary_args = getfullargspec(undecorate(task_obj)).args

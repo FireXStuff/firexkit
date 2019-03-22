@@ -3,6 +3,8 @@ from celery import Celery
 from celery.app.task import Task
 from celery.canvas import chain
 from collections import namedtuple
+
+from firexkit.bag_of_goodies import DyanmicReturnsNotADict
 from firexkit.task import FireXTask, get_attr_unwrapped
 from firexkit.chain import ReturnsCodingException, returns, verify_chain_arguments, InvalidChainArgsException, \
     InjectArgs
@@ -23,7 +25,20 @@ class ReturnsTests(unittest.TestCase):
         def b_task(the_goods):
             return the_goods
 
-        for task in [a_task, b_task]:
+        @test_app.task(base=FireXTask)
+        @returns(FireXTask.DYNAMIC_RETURN)
+        def c_task(the_goods):
+            return {'stuff': the_goods}
+
+        @test_app.task(base=FireXTask, returns=FireXTask.DYNAMIC_RETURN)
+        def d_task(the_goods):
+            return {'stuff': the_goods}
+
+        @test_app.task(base=FireXTask, returns=FireXTask.DYNAMIC_RETURN)
+        def e_task(the_goods):
+            return ({'stuff': the_goods},)
+
+        for task in [a_task, b_task, c_task, d_task, e_task]:
             with self.subTest():
                 ret = task(the_goods="the_goods")
                 self.assertTrue(type(ret) is dict)
@@ -32,6 +47,70 @@ class ReturnsTests(unittest.TestCase):
                 self.assertTrue("the_goods" in ret)
                 self.assertEqual("the_goods", ret["the_goods"])
                 self.assertEqual(ret["stuff"], ret["the_goods"])
+
+    def test_dynamic_returns(self):
+        test_app = Celery()
+
+        @test_app.task(base=FireXTask, returns=(FireXTask.DYNAMIC_RETURN, 'stuff2'))
+        def a_task(the_goods, the_other_goods):
+            return {'stuff': the_goods}, the_other_goods
+
+        @test_app.task(base=FireXTask, returns=('stuff2', FireXTask.DYNAMIC_RETURN))
+        def b_task(the_other_goods, the_goods):
+            return the_other_goods, {'stuff': the_goods}
+
+        @test_app.task(base=FireXTask, returns=(FireXTask.DYNAMIC_RETURN, FireXTask.DYNAMIC_RETURN+':2'))
+        def c_task(the_goods, the_other_goods):
+            return {'stuff': the_goods}, {'stuff2': the_other_goods}
+
+        for task in [a_task, b_task, c_task]:
+            with self.subTest('Testing %s' % task.__name__):
+                ret = task(the_goods="the_goods", the_other_goods="the_other_goods")
+                self.assertTrue(type(ret) is dict)
+                self.assertTrue(len(ret) == 4)
+                self.assertTrue("stuff" in ret)
+                self.assertTrue("stuff2" in ret)
+                self.assertTrue("the_goods" in ret)
+                self.assertTrue("the_other_goods" in ret)
+                self.assertEqual("the_goods", ret["the_goods"])
+                self.assertEqual("the_other_goods", ret["the_other_goods"])
+                self.assertEqual(ret["stuff"], ret["the_goods"])
+                self.assertEqual(ret["stuff2"], ret["the_other_goods"])
+
+        @test_app.task(base=FireXTask, returns=(FireXTask.DYNAMIC_RETURN, FireXTask.DYNAMIC_RETURN+':2'))
+        def d_task(the_goods, the_other_goods):
+            return {'stuff': the_goods}, {'stuff': the_other_goods}
+
+        with self.subTest('returns are stumping each other'):
+            ret = d_task(the_goods="the_goods", the_other_goods="the_other_goods")
+            self.assertTrue(type(ret) is dict)
+            self.assertTrue(len(ret) == 3)
+            self.assertTrue("stuff" in ret)
+            self.assertTrue("the_goods" in ret)
+            self.assertTrue("the_other_goods" in ret)
+            self.assertEqual("the_goods", ret["the_goods"])
+            self.assertEqual("the_other_goods", ret["the_other_goods"])
+            self.assertIn(ret["stuff"], [ret["the_other_goods"], ret["the_goods"]])
+
+        @test_app.task(base=FireXTask, returns=FireXTask.DYNAMIC_RETURN)
+        def e_task(the_goods):
+            return the_goods
+
+        for input in [None, '', (set(),), set(), dict(), (dict(),), (tuple(),)]:
+            with self.subTest():
+                ret = e_task(the_goods=input)
+                self.assertTrue(type(ret) is dict)
+                self.assertDictEqual(ret, {'the_goods': input})
+
+        @test_app.task(base=FireXTask, returns=['stuff', FireXTask.DYNAMIC_RETURN])
+        def f_task(the_goods, the_other_goods):
+            return the_goods, the_other_goods
+
+        for bad_input in [set([1,2,3]), (1,2,3), [1,2,3], 'some_string']:
+            with self.subTest():
+                with self.assertRaises(DyanmicReturnsNotADict):
+                    f_task(the_goods='something', the_other_goods=bad_input)
+
 
     def test_bad_returns_code(self):
         test_app = Celery()
@@ -333,6 +412,11 @@ class ChainVerificationTests(unittest.TestCase):
         def beginning2(start):
             return "pass"  # pragma: no cover
 
+        # noinspection PyUnusedLocal
+        @test_app.task(base=FireXTask, returns=FireXTask.DYNAMIC_RETURN)
+        def beginning3(start):
+            return "pass"  # pragma: no cover
+
         @test_app.task(base=FireXTask)
         @returns("mildly_amusing")
         def middle_task(very_important):
@@ -342,6 +426,10 @@ class ChainVerificationTests(unittest.TestCase):
         def middle_task2(very_important):
             assert very_important  # pragma: no cover
 
+        @test_app.task(base=FireXTask, returns=FireXTask.DYNAMIC_RETURN)
+        def middle_task3(very_important):
+            assert very_important  # pragma: no cover
+
         @test_app.task(base=FireXTask)
         @returns("finished")
         def ending(final, missing):
@@ -349,6 +437,10 @@ class ChainVerificationTests(unittest.TestCase):
 
         @test_app.task(base=FireXTask, returns='finished')
         def ending2(final, missing):
+            assert final, missing  # pragma: no cover
+
+        @test_app.task(base=FireXTask, returns=FireXTask.DYNAMIC_RETURN)
+        def ending3(final, missing):
             assert final, missing  # pragma: no cover
 
         for b, m, e in [[beginning, middle_task, ending],[beginning2, middle_task2, ending2]]:
@@ -364,8 +456,7 @@ class ChainVerificationTests(unittest.TestCase):
 
             with self.subTest():
                 with self.assertRaises(InvalidChainArgsException):
-                    c2 = b.s(start="something") | m.s(very_important="@not_there") | e.s(
-                        missing="not missing")
+                    c2 = b.s(start="something") | m.s(very_important="@not_there") | e.s(missing="not missing")
                     verify_chain_arguments(c2)
 
             with self.subTest():
@@ -373,6 +464,23 @@ class ChainVerificationTests(unittest.TestCase):
                 verify_chain_arguments(c2)
                 self.assertIsNotNone(c2)
 
+        with self.subTest():
+            c = beginning.s(start='something') | middle_task3.s()
+            with self.assertRaises(InvalidChainArgsException):
+                verify_chain_arguments(c)
+
+        with self.subTest():
+            c = beginning3.s(start='something') | middle_task.s()
+            verify_chain_arguments(c)
+
+        with self.subTest():
+            c = beginning3.s(start='something') | middle_task3.s() | ending.s()
+            verify_chain_arguments(c)
+
+        with self.subTest():
+            c = beginning3.s() | middle_task3.s()
+            with self.assertRaises(InvalidChainArgsException):
+                verify_chain_arguments(c)
 
 class TaskUtilTests(unittest.TestCase):
     def test_get_attr_unwrapped(self):

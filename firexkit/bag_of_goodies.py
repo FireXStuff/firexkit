@@ -1,9 +1,12 @@
 from inspect import Signature
 
+class DyanmicReturnsNotADict(Exception):
+    pass
 
 class BagOfGoodies(object):
     # Special Char to denote indirect parameter references
     INDIRECT_ARG_CHAR = '@'
+    DYNAMIC_RETURN_CHAR = '__dict__'
 
     def __init__(self, sig: Signature, args, kwargs):
         args = tuple(args)
@@ -73,7 +76,7 @@ class BagOfGoodies(object):
         self._apply_indirect()
 
     def _update(self, updates: {}):
-        self.return_args.update(updates)
+        self._update_returns(updates)
 
         arguments = self.sig.bind_partial(*self.args).arguments
         for k, v in updates.items():
@@ -89,6 +92,10 @@ class BagOfGoodies(object):
     @classmethod
     def _is_indirect(cls, value):
         return hasattr(value, 'startswith') and value.startswith(cls.INDIRECT_ARG_CHAR)
+
+    @classmethod
+    def is_dynamic_return(cls, value):
+        return hasattr(value, 'startswith') and value.startswith(cls.DYNAMIC_RETURN_CHAR)
 
     @classmethod
     def _get_indirect_key(cls, value):
@@ -114,3 +121,14 @@ class BagOfGoodies(object):
             if k not in self.kwargs:
                 self.kwargs[k] = ""
         self._update(updates)
+
+    def _update_returns(self, updates):
+        for k, v in updates.items():
+            if self.is_dynamic_return(k):
+                if v:
+                    if not isinstance(v, dict):
+                        raise DyanmicReturnsNotADict('The value of the dynamic returns %s must be a dictionary.'
+                                                     'Current return value %r is of type %s' % (k, v, type(v).__name__))
+                    self.return_args.update(v)
+            else:
+                self.return_args[k] = v

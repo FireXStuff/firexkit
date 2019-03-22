@@ -34,6 +34,7 @@ class FireXTask(Task):
     """
     Task object that facilitates passing of arguments and return values from one task to another, to be used in chains
     """
+    DYNAMIC_RETURN = BagOfGoodies.DYNAMIC_RETURN_CHAR
 
     def __init__(self):
         self.undecorated = undecorate(self)
