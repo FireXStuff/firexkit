@@ -46,8 +46,6 @@ def returns(*args):
     return decorator
 
 
-
-
 class InjectArgs(object):
     def __init__(self, **kwargs):
         self.injectArgs = kwargs
@@ -114,7 +112,7 @@ def verify_chain_arguments(sig: Signature):
                 current_task_returns = set(get_attr_unwrapped(task_obj, '_decorated_return_keys'))
                 previous |= current_task_returns
             except AttributeError:
-                pass
+                current_task_returns = set()
 
         # If any of the previous keys has a dynamic return, then we can't do any validation
         if any(FireXTask.is_dynamic_return(k) for k in current_task_returns):
