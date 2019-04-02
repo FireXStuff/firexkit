@@ -4,7 +4,6 @@ from inspect import Signature
 class BagOfGoodies(object):
     # Special Char to denote indirect parameter references
     INDIRECT_ARG_CHAR = '@'
-    DYNAMIC_RETURN_CHAR = '__dict__'
 
     def __init__(self, sig: Signature, args, kwargs):
         args = tuple(args)

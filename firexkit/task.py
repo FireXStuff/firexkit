@@ -10,7 +10,7 @@ from celery.utils.log import get_task_logger
 from firexkit.revoke import revoke_recursively
 from firexkit.bag_of_goodies import BagOfGoodies
 from firexkit.argument_conversion import ConverterRegister
-from firexkit.result import wait_on_async_results, get_tasks_names_from_results, wait_for_any_results
+from firexkit.result import wait_on_async_results, get_tasks_names_from_results, wait_for_any_results, RETURN_KEYS_KEY
 
 logger = get_task_logger(__name__)
 
@@ -36,7 +36,8 @@ class FireXTask(Task):
     """
     Task object that facilitates passing of arguments and return values from one task to another, to be used in chains
     """
-    DYNAMIC_RETURN = BagOfGoodies.DYNAMIC_RETURN_CHAR
+    DYNAMIC_RETURN =  '__dict__'
+    RETURN_KEYS_KEY = RETURN_KEYS_KEY
 
     def __init__(self):
         self.undecorated = undecorate(self)
@@ -60,7 +61,7 @@ class FireXTask(Task):
     def is_dynamic_return(cls, value):
         return hasattr(value, 'startswith') and value.startswith(cls.DYNAMIC_RETURN)
 
-    def get_task_return_keys(self):
+    def get_task_return_keys(self) -> tuple:
         task_return_keys = get_attr_unwrapped(self, 'returns', tuple())
         if task_return_keys:
             if isinstance(task_return_keys, str):
@@ -73,6 +74,7 @@ class FireXTask(Task):
 
     @classmethod
     def convert_returns_to_dict(cls, return_keys, result) -> dict:
+        _return_keys = set(return_keys)
         if type(result) != tuple and isinstance(result, tuple):
             # handle named tuples, they are a result, not all the results
             result = (result,)
@@ -91,11 +93,17 @@ class FireXTask(Task):
         for k in tuple(result.keys()):
             if cls.is_dynamic_return(k):
                 v = result.pop(k)
+                _return_keys.remove(k)
                 if v:
                     if not isinstance(v, dict):
                         raise DyanmicReturnsNotADict('The value of the dynamic returns %s must be a dictionary.'
                                                      'Current return value %r is of type %s' % (k, v, type(v).__name__))
                     result.update(v)
+                    _return_keys.update(v.keys())
+
+        #Inject into the results the RETURN_KEYS
+        if _return_keys:
+            result[cls.RETURN_KEYS_KEY] = _return_keys
         return result
 
     def run(self, *args, **kwargs):

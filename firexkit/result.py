@@ -5,6 +5,8 @@ from celery.result import AsyncResult
 from celery.utils.log import get_task_logger
 from firexkit.revoke import RevokedRequests
 
+RETURN_KEYS_KEY = '__task_return_keys'
+
 logger = get_task_logger(__name__)
 
 

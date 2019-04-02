@@ -41,11 +41,12 @@ class ReturnsTests(unittest.TestCase):
             with self.subTest():
                 ret = task(the_goods="the_goods")
                 self.assertTrue(type(ret) is dict)
-                self.assertTrue(len(ret) == 2)
+                self.assertTrue(len(ret) == 3)
                 self.assertTrue("stuff" in ret)
                 self.assertTrue("the_goods" in ret)
                 self.assertEqual("the_goods", ret["the_goods"])
                 self.assertEqual(ret["stuff"], ret["the_goods"])
+                self.assertEqual(ret[FireXTask.RETURN_KEYS_KEY], {'stuff'})
 
     def test_dynamic_returns(self):
         test_app = Celery()
@@ -66,7 +67,7 @@ class ReturnsTests(unittest.TestCase):
             with self.subTest('Testing %s' % task.__name__):
                 ret = task(the_goods="the_goods", the_other_goods="the_other_goods")
                 self.assertTrue(type(ret) is dict)
-                self.assertTrue(len(ret) == 4)
+                self.assertTrue(len(ret) == 5)
                 self.assertTrue("stuff" in ret)
                 self.assertTrue("stuff2" in ret)
                 self.assertTrue("the_goods" in ret)
@@ -75,21 +76,23 @@ class ReturnsTests(unittest.TestCase):
                 self.assertEqual("the_other_goods", ret["the_other_goods"])
                 self.assertEqual(ret["stuff"], ret["the_goods"])
                 self.assertEqual(ret["stuff2"], ret["the_other_goods"])
+                self.assertEqual(ret[FireXTask.RETURN_KEYS_KEY], {'stuff', 'stuff2'})
 
         @test_app.task(base=FireXTask, returns=(FireXTask.DYNAMIC_RETURN, FireXTask.DYNAMIC_RETURN+':2'))
         def d_task(the_goods, the_other_goods):
             return {'stuff': the_goods}, {'stuff': the_other_goods}
 
-        with self.subTest('returns are stumping each other'):
+        with self.subTest('returns are stumpi4ng each other'):
             ret = d_task(the_goods="the_goods", the_other_goods="the_other_goods")
             self.assertTrue(type(ret) is dict)
-            self.assertTrue(len(ret) == 3)
+            self.assertTrue(len(ret) == 4)
             self.assertTrue("stuff" in ret)
             self.assertTrue("the_goods" in ret)
             self.assertTrue("the_other_goods" in ret)
             self.assertEqual("the_goods", ret["the_goods"])
             self.assertEqual("the_other_goods", ret["the_other_goods"])
             self.assertIn(ret["stuff"], [ret["the_other_goods"], ret["the_goods"]])
+            self.assertEqual(ret[FireXTask.RETURN_KEYS_KEY], {'stuff'})
 
         @test_app.task(base=FireXTask, returns=FireXTask.DYNAMIC_RETURN)
         def e_task(the_goods):
@@ -202,7 +205,7 @@ class ReturnsTests(unittest.TestCase):
             with self.subTest():
                 ret = task(the_goods="the_goods")
                 self.assertTrue(type(ret) is dict)
-                self.assertTrue(len(ret) == 3)
+                self.assertTrue(len(ret) == 4)
                 self.assertTrue("stuff" in ret)
                 self.assertTrue("the_task_name" in ret)
                 self.assertTrue("the_goods" in ret)
@@ -210,6 +213,7 @@ class ReturnsTests(unittest.TestCase):
                 self.assertEqual("the_goods", ret["the_goods"])
                 # noinspection PyTypeChecker
                 self.assertEqual(ret["stuff"], ret["the_goods"])
+                self.assertEqual(ret[FireXTask.RETURN_KEYS_KEY], {"the_task_name", "stuff"})
 
     def test_returns_play_nice_with_decorators(self):
         test_app = Celery()
@@ -228,8 +232,9 @@ class ReturnsTests(unittest.TestCase):
 
         ret = a_task(the_goods="the_goods")
         self.assertTrue(type(ret) is dict)
-        self.assertTrue(len(ret) == 2)
+        self.assertTrue(len(ret) == 3)
         self.assertTrue("stuff" in ret)
+        self.assertEqual(ret[FireXTask.RETURN_KEYS_KEY], {'stuff'})
 
     def test_returning_named_tuples(self):
         test_app = Celery()
@@ -250,8 +255,9 @@ class ReturnsTests(unittest.TestCase):
                 # noinspection PyTypeChecker
                 self.assertTrue(type(ret["named_t"]) is TestingTuple)
                 self.assertTrue(type(ret) is dict)
-                self.assertTrue(len(ret) == 1)
+                self.assertTrue(len(ret) == 2)
                 self.assertTrue("named_t" in ret)
+                self.assertEqual(ret[FireXTask.RETURN_KEYS_KEY], {'named_t'})
 
                 # noinspection PyTypeChecker
                 self.assertEqual(1, ret["named_t"].thing1)
