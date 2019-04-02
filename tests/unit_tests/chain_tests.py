@@ -17,6 +17,7 @@ def assertTupleAlmostEqual(t1, t2):
     for k in t1:
         assert k in t2, '%r not in %r' % (k, t2)
 
+
 class ReturnsTests(unittest.TestCase):
 
     def test_returns_normal_case(self):
