@@ -103,7 +103,7 @@ class FireXTask(Task):
 
         #Inject into the results the RETURN_KEYS
         if _return_keys:
-            result[cls.RETURN_KEYS_KEY] = _return_keys
+            result[cls.RETURN_KEYS_KEY] = tuple(_return_keys)
         return result
 
     def run(self, *args, **kwargs):
