@@ -46,7 +46,7 @@ class ReturnsTests(unittest.TestCase):
                 self.assertTrue("the_goods" in ret)
                 self.assertEqual("the_goods", ret["the_goods"])
                 self.assertEqual(ret["stuff"], ret["the_goods"])
-                self.assertEqual(ret[FireXTask.RETURN_KEYS_KEY], {'stuff'})
+                self.assertTupleEqual(ret[FireXTask.RETURN_KEYS_KEY], ('stuff',))
 
     def test_dynamic_returns(self):
         test_app = Celery()
@@ -76,7 +76,7 @@ class ReturnsTests(unittest.TestCase):
                 self.assertEqual("the_other_goods", ret["the_other_goods"])
                 self.assertEqual(ret["stuff"], ret["the_goods"])
                 self.assertEqual(ret["stuff2"], ret["the_other_goods"])
-                self.assertEqual(ret[FireXTask.RETURN_KEYS_KEY], {'stuff', 'stuff2'})
+                self.assertTupleEqual(ret[FireXTask.RETURN_KEYS_KEY], ('stuff', 'stuff2'))
 
         @test_app.task(base=FireXTask, returns=(FireXTask.DYNAMIC_RETURN, FireXTask.DYNAMIC_RETURN+':2'))
         def d_task(the_goods, the_other_goods):
@@ -92,7 +92,7 @@ class ReturnsTests(unittest.TestCase):
             self.assertEqual("the_goods", ret["the_goods"])
             self.assertEqual("the_other_goods", ret["the_other_goods"])
             self.assertIn(ret["stuff"], [ret["the_other_goods"], ret["the_goods"]])
-            self.assertEqual(ret[FireXTask.RETURN_KEYS_KEY], {'stuff'})
+            self.assertTupleEqual(ret[FireXTask.RETURN_KEYS_KEY], ('stuff',))
 
         @test_app.task(base=FireXTask, returns=FireXTask.DYNAMIC_RETURN)
         def e_task(the_goods):
@@ -213,7 +213,7 @@ class ReturnsTests(unittest.TestCase):
                 self.assertEqual("the_goods", ret["the_goods"])
                 # noinspection PyTypeChecker
                 self.assertEqual(ret["stuff"], ret["the_goods"])
-                self.assertEqual(ret[FireXTask.RETURN_KEYS_KEY], {"the_task_name", "stuff"})
+                self.assertTupleEqual(ret[FireXTask.RETURN_KEYS_KEY], ("the_task_name", "stuff"))
 
     def test_returns_play_nice_with_decorators(self):
         test_app = Celery()
@@ -234,7 +234,7 @@ class ReturnsTests(unittest.TestCase):
         self.assertTrue(type(ret) is dict)
         self.assertTrue(len(ret) == 3)
         self.assertTrue("stuff" in ret)
-        self.assertEqual(ret[FireXTask.RETURN_KEYS_KEY], {'stuff'})
+        self.assertTupleEqual(ret[FireXTask.RETURN_KEYS_KEY], ('stuff',))
 
     def test_returning_named_tuples(self):
         test_app = Celery()
@@ -257,7 +257,7 @@ class ReturnsTests(unittest.TestCase):
                 self.assertTrue(type(ret) is dict)
                 self.assertTrue(len(ret) == 2)
                 self.assertTrue("named_t" in ret)
-                self.assertEqual(ret[FireXTask.RETURN_KEYS_KEY], {'named_t'})
+                self.assertTupleEqual(ret[FireXTask.RETURN_KEYS_KEY], ('named_t',))
 
                 # noinspection PyTypeChecker
                 self.assertEqual(1, ret["named_t"].thing1)
