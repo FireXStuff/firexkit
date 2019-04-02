@@ -1,3 +1,4 @@
+from firexkit.result import RETURN_KEYS_KEY
 from inspect import Signature
 
 
@@ -24,6 +25,9 @@ class BagOfGoodies(object):
             # dict (i.e., result of a previous task), we need to process it.
             if isinstance(args[0], dict):
                 original_args = args[0]
+                # Remove the RETURN_KEYS_KEY entry
+                if RETURN_KEYS_KEY in original_args:
+                    del original_args[RETURN_KEYS_KEY]
                 # Partially bind the remaining arguments
                 ba = sig.bind_partial(*args[1:]).arguments
                 for k, v in original_args.items():
