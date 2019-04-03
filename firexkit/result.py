@@ -1,6 +1,7 @@
 import time
 from collections import namedtuple
 
+import traceback
 from celery.result import AsyncResult
 from celery.utils.log import get_task_logger
 from firexkit.revoke import RevokedRequests
@@ -169,3 +170,40 @@ class ChainInterruptedException(Exception):
 
     def __init__(self, microservice_name):
         super(ChainInterruptedException, self).__init__(self.MESSAGE % microservice_name)
+
+
+def get_task_results(results: dict) -> dict:
+    try:
+        return_keys = results[RETURN_KEYS_KEY]
+    except KeyError:
+        return {}
+    else:
+        return {k: results[k] for k in return_keys} if return_keys else {}
+
+
+def get_results(result_id: AsyncResult, return_keys_only=True, merge_children_results=False) -> dict:
+    results = {}
+    try:
+        if result_id.successful():
+            _results = result_id.result
+            if _results:
+                if return_keys_only:
+                    results = get_task_results(_results)
+                else:
+                    # Delete the RETURN_KEYS_KEY
+                    _results.pop(RETURN_KEYS_KEY, None)
+                    results = _results
+
+        if merge_children_results:
+            children = result_id.children
+            if children:
+                for child in children:
+                    child_results = get_results(child,
+                                                return_keys_only=return_keys_only,
+                                                merge_children_results=merge_children_results)
+                    results.update(child_results)
+    except Exception as e:
+        logger.error(e)
+        logger.error(traceback.format_exc())
+
+    return results
