@@ -540,6 +540,18 @@ class InjectArgsTest(unittest.TestCase):
             c = c | injected_task1.s()
             verify_chain_arguments(c)
 
+        with self.subTest("Inject will be overridden by signature"):
+            kwargs = {"injected": "thing"}
+            c = InjectArgs(**kwargs)
+            c = c | injected_task1.s(injected="stuff")
+            self.assertEqual(c.kwargs['injected'], "stuff")
+
+        with self.subTest("Inject will be overridden by chain"):
+            kwargs = {"injected": "thing"}
+            c = InjectArgs(**kwargs)
+            c = c | (injected_task1.s(injected="stuff") | injected_task1.s())
+            self.assertEqual(c.tasks[0].kwargs['injected'], "stuff")
+
     def test_inject_necessary(self):
         test_app = Celery()
 

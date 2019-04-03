@@ -65,10 +65,14 @@ class InjectArgs(object):
 def _inject_args_into_signature(sig, **kwargs):
     try:
         # This might be a chain
-        sig.tasks[0].kwargs.update(**kwargs)
+        task = sig.tasks[0]
     except AttributeError:
         # This might be a Task
-        sig.kwargs.update(**kwargs)
+        task = sig
+
+    existing = task.kwargs.keys()
+    subset = {k: v for k, v in kwargs.items() if k not in existing}
+    task.kwargs.update(subset)
 
 
 Signature.injectArgs = _inject_args_into_signature
