@@ -120,6 +120,25 @@ class GetResultsTests(unittest.TestCase):
             self.assertDictEqual(get_results(r, return_keys_only=False, merge_children_results=True), expected)
             self.assertDictEqual(get_results(r, merge_children_results=True), {})
 
+    def test_return_keys(self):
+        with self.subTest('return_keys'):
+            return_keys = {RETURN_KEYS_KEY: ('a', 'b', 'c', 'd')}
+            values = {'a': 1, 'b': 2, 'c': 3, 'd': 4}
+            result = values.copy()
+            result.update(**return_keys)
+            r = AsyncResultMock(result=result)
+
+            with self.subTest('string'):
+                self.assertTupleEqual(get_results(r, return_keys='a'), (1, ))
+            with self.subTest('tuple of one'):
+                self.assertTupleEqual(get_results(r, return_keys=('a',)), (1, ))
+            with self.subTest('tuple of two'):
+                self.assertTupleEqual(get_results(r, return_keys=('b', 'd')), (2, 4))
+            with self.subTest('None'):
+                self.assertDictEqual(get_results(r, return_keys=None), values)
+            with self.subTest('Non-existent key'):
+                self.assertTupleEqual(get_results(r, return_keys=('b', 'z')), (2, None))
+
     def test_extract_task_returns_only(self):
         with self.subTest('plain case'):
             return_keys = ('a', 'b')

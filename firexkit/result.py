@@ -181,11 +181,11 @@ def get_task_results(results: dict) -> dict:
         return {k: results[k] for k in return_keys} if return_keys else {}
 
 
-def get_results(result_id: AsyncResult, return_keys_only=True, merge_children_results=False) -> dict:
+def _get_results(result: AsyncResult, return_keys_only=True, merge_children_results=False) -> dict:
     results = {}
     try:
-        if result_id.successful():
-            _results = result_id.result
+        if result.successful():
+            _results = result.result
             if _results:
                 if return_keys_only:
                     results = get_task_results(_results)
@@ -195,7 +195,7 @@ def get_results(result_id: AsyncResult, return_keys_only=True, merge_children_re
                     results = _results
 
         if merge_children_results:
-            children = result_id.children
+            children = result.children
             if children:
                 for child in children:
                     child_results = get_results(child,
@@ -207,3 +207,15 @@ def get_results(result_id: AsyncResult, return_keys_only=True, merge_children_re
         logger.error(traceback.format_exc())
 
     return results
+
+
+def get_results(result: AsyncResult, return_keys=(), return_keys_only=True, merge_children_results=False):
+    extracted_dict = _get_results(result,
+                                  return_keys_only=return_keys_only,
+                                  merge_children_results=merge_children_results)
+    if return_keys:
+        if isinstance(return_keys, str):
+            return_keys = tuple([return_keys])
+        return tuple([extracted_dict.get(key) for key in return_keys])
+    else:
+        return extracted_dict
