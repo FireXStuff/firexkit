@@ -1,11 +1,16 @@
+import logging
+import os
 from collections import OrderedDict
 import inspect
+import traceback
 from enum import Enum
+from firexapp.common import silent_mkdir
+from logging.handlers import WatchedFileHandler
 from types import MethodType
 from abc import abstractmethod
 from celery.app.task import Task
 from celery.local import PromiseProxy
-from celery.utils.log import get_task_logger
+from celery.utils.log import get_task_logger, get_logger
 
 from firexkit.revoke import revoke_recursively
 from firexkit.bag_of_goodies import BagOfGoodies
@@ -54,6 +59,11 @@ class FireXTask(Task):
 
         self._in_required = None
         self._in_optional = None
+
+        self._file_logging_dir_path = None
+        self._task_logging_dirpath = None
+        self._task_logfile = None
+        self._temp_loghandlers = None
 
         self._enqueued_children = {}
 
@@ -127,6 +137,8 @@ class FireXTask(Task):
         pass
 
     def __call__(self, *args, **kwargs):
+        if not self.request.called_directly:
+            self.add_task_logfile_handler()
         try:
             result = self._process_arguments_and_run(*args, **kwargs)
 
@@ -137,9 +149,17 @@ class FireXTask(Task):
                     logger.debug("The following exception was thrown (and caught) when wait_for_children was "
                                  "implicitly called by this task's base class:\n" + str(e))
             return result
+        except Exception as e:
+            logger.debug(traceback.format_exc())
+            logger.error(e)
+            raise
         finally:
-            if self._lagging_children_strategy is not PendingChildStrategy.Continue:
-                self.revoke_pending_children()
+            try:
+                if self._lagging_children_strategy is not PendingChildStrategy.Continue:
+                    self.revoke_pending_children()
+            finally:
+                if not self.request.called_directly:
+                    self.remove_task_logfile_handler()
 
     def _process_arguments_and_run(self, *args, **kwargs):
         # Organise the input args by creating a BagOfGoodies
@@ -302,6 +322,64 @@ class FireXTask(Task):
             logger.info('Pending children of current task exist. '
                         'Revoking %r' % get_tasks_names_from_results(pending_children))
             revoke_recursively(pending_children)
+
+    @property
+    def root_logger(self):
+        return logger.root
+
+    @property
+    def root_logger_file_handler(self):
+        return [handler for handler in self.root_logger.handlers if isinstance(handler, WatchedFileHandler)][0]
+
+    @property
+    def file_logging_dirpath(self):
+        if self._file_logging_dir_path:
+            return self._file_logging_dir_path
+        else:
+            self._file_logging_dir_path = os.path.dirname(self.root_logger_file_handler.baseFilename)
+            return self._file_logging_dir_path
+
+    @property
+    def task_logging_dirpath(self):
+        if self._task_logging_dirpath:
+            return self._task_logging_dirpath
+        else:
+            _task_logging_dirpath = os.path.join(self.file_logging_dirpath, self.request.hostname)
+            if not os.path.exists(_task_logging_dirpath):
+                silent_mkdir(_task_logging_dirpath)
+            self._task_logging_dirpath = _task_logging_dirpath
+            return self._task_logging_dirpath
+
+    @property
+    def task_logfile(self):
+        if self._task_logfile:
+            return self._task_logfile
+        else:
+            filename = '%s_%s' % (self.name, str(self.request.id))
+            self._task_logfile = os.path.join(self.task_logging_dirpath, filename)
+            return self._task_logfile
+
+    def add_task_logfile_handler(self):
+        self._temp_loghandlers = {}
+        fh_root = logging.FileHandler(self.task_logfile, mode='a+')
+        fh_root.setLevel(logging.DEBUG)
+        fh_root.setFormatter(self.root_logger_file_handler.formatter)
+        self.root_logger.addHandler(fh_root)
+        self._temp_loghandlers[self.root_logger] = fh_root
+
+        task_logger = get_logger('celery.task')
+        fh_task = logging.FileHandler(self.task_logfile, mode='a+')
+        fh_task.setLevel(logging.DEBUG)
+        original_file_handler = [handler for handler in task_logger.handlers if
+                                 isinstance(handler, WatchedFileHandler)][0]
+        fh_task.setFormatter(original_file_handler.formatter)
+        task_logger.addHandler(fh_task)
+        self._temp_loghandlers[task_logger] = fh_task
+
+    def remove_task_logfile_handler(self):
+        for _logger, _handler in self._temp_loghandlers.items():
+            _logger.removeHandler(_handler)
+
 
 
 def undecorate(task):
