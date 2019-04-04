@@ -4,7 +4,6 @@ from collections import OrderedDict
 import inspect
 import traceback
 from enum import Enum
-from firexapp.common import silent_mkdir
 from logging.handlers import WatchedFileHandler
 from types import MethodType
 from abc import abstractmethod
@@ -346,7 +345,7 @@ class FireXTask(Task):
         else:
             _task_logging_dirpath = os.path.join(self.file_logging_dirpath, self.request.hostname)
             if not os.path.exists(_task_logging_dirpath):
-                silent_mkdir(_task_logging_dirpath)
+                os.makedirs(_task_logging_dirpath, mode=0o777, exist_ok=True)
             self._task_logging_dirpath = _task_logging_dirpath
             return self._task_logging_dirpath
 
