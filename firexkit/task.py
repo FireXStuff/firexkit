@@ -135,7 +135,7 @@ class FireXTask(Task):
         """
         pass
 
-    def __call__(self, *args, _remove_task_logfile_handler=True, **kwargs):
+    def __call__(self, *args, **kwargs):
         if not self.request.called_directly:
             self.add_task_logfile_handler()
         try:
@@ -157,8 +157,7 @@ class FireXTask(Task):
                 if self._lagging_children_strategy is not PendingChildStrategy.Continue:
                     self.revoke_pending_children()
             finally:
-                if _remove_task_logfile_handler:
-                    self.remove_task_logfile_handler()
+                self.remove_task_logfile_handler()
 
     def _process_arguments_and_run(self, *args, **kwargs):
         # Organise the input args by creating a BagOfGoodies
