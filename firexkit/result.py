@@ -219,3 +219,10 @@ def get_results(result: AsyncResult, return_keys=(), return_keys_only=True, merg
         return tuple([extracted_dict.get(key) for key in return_keys])
     else:
         return extracted_dict
+
+
+def disable_async_result(result: AsyncResult):
+    children = result.children or []
+    for child in children:
+        disable_async_result(child)
+    result.backend = None
