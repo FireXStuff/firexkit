@@ -222,7 +222,12 @@ def get_results(result: AsyncResult, return_keys=(), return_keys_only=True, merg
 
 
 def disable_async_result(result: AsyncResult):
-    children = result.children or []
+    # fetching the children could itself result in using the backend. So we disable it before hand
+    result.backend = None
+    try:
+        children = result.children or []
+    except AttributeError:
+        return
+
     for child in children:
         disable_async_result(child)
-    result.backend = None
