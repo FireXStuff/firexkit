@@ -3,6 +3,8 @@ from collections import namedtuple
 
 import traceback
 from celery.result import AsyncResult
+from celery.signals import task_prerun
+from celery.states import FAILURE
 from celery.utils.log import get_task_logger
 from firexkit.revoke import RevokedRequests
 
@@ -29,13 +31,20 @@ def get_tasks_names_from_results(results):
     return [get_result_logging_name(r) for r in results]
 
 
-def get_result_logging_name(result, name=None):
+def get_result_logging_name(result: AsyncResult, name=None):
     if name is None:
         name = get_task_name_from_result(result)
     return '%s[%s]' % (name, result)
 
 
-def is_result_ready(result, max_trials=None, retry_delay=1):
+# noinspection PyUnusedLocal
+@task_prerun.connect
+def populate_task_name(task_id, task, args, kwargs, **donotcare):
+    from celery import current_app
+    current_app.backend.set(task_id, task.name)
+
+
+def is_result_ready(result: AsyncResult, max_trials=None, retry_delay=1):
     """
     Protect against broker being temporary unreachable and throwing a TimeoutError
     """
@@ -55,6 +64,32 @@ def is_result_ready(result, max_trials=None, retry_delay=1):
                 raise
             else:
                 time.sleep(retry_delay)
+
+
+def find_unsuccessful(result: AsyncResult, ignore_non_ready=False, depth=0)->{}:
+    name = get_result_logging_name(result)
+    state_str = '-'*depth*2 + '->%s: ' % name
+
+    failures = {}
+    if is_result_ready(result):
+        # Did this task fail?
+        state = result.state
+        logger.debug(state_str + state)
+        if state == FAILURE:
+            failures[result.id] = name
+    else:
+        # This task was not ready
+        logger.debug(state_str + 'NOT READY!')
+        if not ignore_non_ready:
+            failures[result.id] = name
+
+    # Look for failures in the children
+    children = result.children
+    if children:
+        depth += 1
+        for child in children:
+            failures.update(find_unsuccessful(child, ignore_non_ready, depth))
+    return failures
 
 
 def _check_for_traceback_in_parents(result):
