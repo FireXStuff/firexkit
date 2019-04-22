@@ -67,7 +67,7 @@ class ReturnsTests(unittest.TestCase):
         def b_task(the_other_goods, the_goods):
             return the_other_goods, {'stuff': the_goods}
 
-        @test_app.task(base=FireXTask, returns=(FireXTask.DYNAMIC_RETURN, FireXTask.DYNAMIC_RETURN+':2'))
+        @test_app.task(base=FireXTask, returns=(FireXTask.DYNAMIC_RETURN, FireXTask.DYNAMIC_RETURN))
         def c_task(the_goods, the_other_goods):
             return {'stuff': the_goods}, {'stuff2': the_other_goods}
 
@@ -86,11 +86,11 @@ class ReturnsTests(unittest.TestCase):
                 self.assertEqual(ret["stuff2"], ret["the_other_goods"])
                 assertTupleAlmostEqual(ret[FireXTask.RETURN_KEYS_KEY], ('stuff', 'stuff2'))
 
-        @test_app.task(base=FireXTask, returns=(FireXTask.DYNAMIC_RETURN, FireXTask.DYNAMIC_RETURN+':2'))
+        @test_app.task(base=FireXTask, returns=(FireXTask.DYNAMIC_RETURN, FireXTask.DYNAMIC_RETURN))
         def d_task(the_goods, the_other_goods):
             return {'stuff': the_goods}, {'stuff': the_other_goods}
 
-        with self.subTest('returns are stumpi4ng each other'):
+        with self.subTest('returns are stumping each other'):
             ret = d_task(the_goods="the_goods", the_other_goods="the_other_goods")
             self.assertTrue(type(ret) is dict)
             self.assertTrue(len(ret) == 4)
@@ -106,21 +106,31 @@ class ReturnsTests(unittest.TestCase):
         def e_task(the_goods):
             return the_goods
 
-        for input in [None, '', (set(),), set(), dict(), (dict(),), (tuple(),)]:
+        for input_value in [None, '', (set(),), set(), dict(), (dict(),), (tuple(),)]:
             with self.subTest():
-                ret = e_task(the_goods=input)
+                ret = e_task(the_goods=input_value)
                 self.assertTrue(type(ret) is dict)
-                self.assertDictEqual(ret, {'the_goods': input})
+                self.assertDictEqual(ret, {'the_goods': input_value})
 
         @test_app.task(base=FireXTask, returns=['stuff', FireXTask.DYNAMIC_RETURN])
         def f_task(the_goods, the_other_goods):
             return the_goods, the_other_goods
 
-        for bad_input in [set([1,2,3]), (1,2,3), [1,2,3], 'some_string']:
+        for bad_input in [{1,2,3}, (1,2,3), [1,2,3], 'some_string']:
             with self.subTest():
                 with self.assertRaises(DyanmicReturnsNotADict):
                     f_task(the_goods='something', the_other_goods=bad_input)
 
+        # validate that order is preserved
+        @test_app.task(base=FireXTask, returns=['stuff', FireXTask.DYNAMIC_RETURN, "more_stuff"])
+        def g_task():
+            return "first", {"stuff": "final", "more_stuff": "first"}, "final2"
+
+        with self.subTest("Precedence"):
+            for _ in range(0, 5):  # run multiple times to avoid false positives if dict are used
+                ret = g_task()
+                self.assertEqual(ret["stuff"], "final", "Dynamic did not override stuff")
+                self.assertEqual(ret["more_stuff"], "final2", "explicit did not override dynamic")
 
     def test_bad_returns_code(self):
         test_app = Celery()
@@ -190,11 +200,12 @@ class ReturnsTests(unittest.TestCase):
 
         # Can't use both @returns and returns=
         with self.assertRaises(ReturnsCodingException):
-            @test_app.task(base=FireXTask, returns=('a'))
+            @test_app.task(base=FireXTask, returns=('a',))
             @returns('a')
             def double_return():
                 return None
             # Need to instantiate the object (otherwise its just a Proxy), hence the next line
+            # noinspection PyStatementEffect
             double_return.__name__
 
     def test_returns_and_bind(self):
@@ -456,7 +467,7 @@ class ChainVerificationTests(unittest.TestCase):
         def ending3(final, missing):
             assert final, missing  # pragma: no cover
 
-        for b, m, e in [[beginning, middle_task, ending],[beginning2, middle_task2, ending2]]:
+        for b, m, e in [[beginning, middle_task, ending], [beginning2, middle_task2, ending2]]:
             with self.subTest():
                 with self.assertRaises(InvalidChainArgsException):
                     c = b.s(start="something") | m.s(very_important="oh_it_is") | e.s()
@@ -494,6 +505,7 @@ class ChainVerificationTests(unittest.TestCase):
             c = beginning3.s() | middle_task3.s()
             with self.assertRaises(InvalidChainArgsException):
                 verify_chain_arguments(c)
+
 
 class TaskUtilTests(unittest.TestCase):
     def test_get_attr_unwrapped(self):

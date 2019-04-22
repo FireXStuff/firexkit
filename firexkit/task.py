@@ -33,14 +33,16 @@ class PendingChildStrategy(Enum):
 class ReturnsCodingException(Exception):
     pass
 
+
 class DyanmicReturnsNotADict(Exception):
     pass
+
 
 class FireXTask(Task):
     """
     Task object that facilitates passing of arguments and return values from one task to another, to be used in chains
     """
-    DYNAMIC_RETURN =  '__dict__'
+    DYNAMIC_RETURN = '__dict__'
     RETURN_KEYS_KEY = RETURN_KEYS_KEY
 
     def __init__(self):
@@ -75,42 +77,43 @@ class FireXTask(Task):
         if task_return_keys:
             if isinstance(task_return_keys, str):
                 task_return_keys = (task_return_keys, )
-            if len(task_return_keys) != len(set(task_return_keys)):
-                raise ReturnsCodingException("Can't have duplicate return keys")
+
+            explicit_keys = [k for k in task_return_keys if not self.is_dynamic_return(k)]
+            if len(explicit_keys) != len(set(explicit_keys)):
+                raise ReturnsCodingException("Can't have duplicate explicit return keys")
+
             if not isinstance(task_return_keys, tuple):
                 task_return_keys = tuple(task_return_keys)
         return task_return_keys
 
     @classmethod
     def convert_returns_to_dict(cls, return_keys, result) -> dict:
-        _return_keys = set(return_keys)
         if type(result) != tuple and isinstance(result, tuple):
             # handle named tuples, they are a result, not all the results
             result = (result,)
+        if not isinstance(result, tuple):
+            # handle case of singular result
+            result = (result, )
 
-        no_expected_keys = len(return_keys)
-        if isinstance(result, tuple):
-            if len(result) != no_expected_keys:
-                raise ReturnsCodingException('Expected %d keys in @returns,. got %d' %
-                                             (no_expected_keys, len(result)))
-            result = dict(zip(return_keys, result))
-        else:
-            if no_expected_keys != 1:
-                raise ReturnsCodingException('Expected one key in @returns')
-            result = {return_keys[0]: result}
+        if len(return_keys) != len(result):
+            raise ReturnsCodingException('Expected %s keys in @returns' % len(return_keys))
 
-        for k in tuple(result.keys()):
-            if cls.is_dynamic_return(k):
-                v = result.pop(k)
-                _return_keys.remove(k)
-                if v:
-                    if not isinstance(v, dict):
-                        raise DyanmicReturnsNotADict('The value of the dynamic returns %s must be a dictionary.'
-                                                     'Current return value %r is of type %s' % (k, v, type(v).__name__))
-                    result.update(v)
-                    _return_keys.update(v.keys())
+        # time to process the multiple return values
+        flat_results = OrderedDict()
+        for k, v in zip(return_keys, result):
+            if k == cls.DYNAMIC_RETURN:
+                if not v:
+                    continue
+                if not isinstance(v, dict):
+                    raise DyanmicReturnsNotADict('The value of the dynamic returns %s must be a dictionary.'
+                                                 'Current return value %r is of type %s' % (k, v, type(v).__name__))
+                flat_results.update(v)
+            else:
+                flat_results[k] = v
+        result = flat_results
+        _return_keys = list(result.keys())
 
-        #Inject into the results the RETURN_KEYS
+        # Inject into the results the RETURN_KEYS
         if _return_keys:
             result[cls.RETURN_KEYS_KEY] = tuple(_return_keys)
         return result
@@ -380,7 +383,6 @@ class FireXTask(Task):
                 _logger.removeHandler(_handler)
 
 
-
 def undecorate(task):
     """:return: the original function that was used to create a microservice"""
     undecorated_func = task.run
@@ -450,5 +452,3 @@ def get_attr_unwrapped(fun: callable, attr_name, *default_value):
     if default_value:
         return default_value[0]
     raise AttributeError(attr_name)
-
-
