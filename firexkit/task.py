@@ -362,7 +362,7 @@ class FireXTask(Task):
 
     def add_task_logfile_handler(self):
         self._temp_loghandlers = {}
-        fh_root = logging.FileHandler(self.task_logfile, mode='a+')
+        fh_root = logging.handlers.WatchedFileHandler(self.task_logfile, mode='a+')
         fh_root.setLevel(logging.DEBUG)
         fh_root.setFormatter(self.root_logger_file_handler.formatter)
         self.root_logger.addHandler(fh_root)
