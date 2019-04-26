@@ -289,13 +289,12 @@ class FireXTask(Task):
             self._add_enqueued_child(child_result)
         self._enqueued_children[child_result][self._STATE_KEY] = state
 
-    def wait_for_children(self, pending_only=True, **kwargs):
-        """Wait for all enqueued child tasks to run and complete"""
+    def wait_for_any_children(self, pending_only=True, **kwargs):
+        """Wait for any of the enqueued child tasks to run and complete"""
         child_results = self.pending_enqueued_children if pending_only else self.enqueued_children
-        if child_results:
-            logger.debug('Waiting for enqueued children: %r' % get_tasks_names_from_results(child_results))
-            wait_on_async_results(child_results, caller_task=self, **kwargs)
-            [self._update_child_state(child_result, self._UNBLOCKED) for child_result in child_results]
+        for completed_child_result in wait_for_any_results(child_results, **kwargs):
+            self._update_child_state(completed_child_result, self._UNBLOCKED)
+            yield completed_child_result
 
     def wait_for_children(self, pending_only=True, **kwargs):
         """Wait for all enqueued child tasks to run and complete"""
@@ -303,7 +302,7 @@ class FireXTask(Task):
         self.wait_for_specific_children(child_results=child_results, **kwargs)
 
     def wait_for_specific_children(self, child_results, **kwargs):
-        """Wait for all enqueued child tasks to run and complete"""
+        """Wait for the explicitly provided child_results to run and complete"""
         if child_results:
             logger.debug('Waiting for enqueued children: %r' % get_tasks_names_from_results(child_results))
             wait_on_async_results(child_results, caller_task=self, **kwargs)
