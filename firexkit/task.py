@@ -63,7 +63,6 @@ class FireXTask(Task):
 
         self._file_logging_dir_path = None
         self._task_logging_dirpath = None
-        self._task_logfile = None
         self._temp_loghandlers = None
 
         self._enqueued_children = {}
@@ -353,23 +352,20 @@ class FireXTask(Task):
 
     @property
     def task_logfile(self):
-        if self._task_logfile:
-            return self._task_logfile
-        else:
-            filename = '%s_%s' % (self.name, str(self.request.id))
-            self._task_logfile = os.path.join(self.task_logging_dirpath, filename)
-            return self._task_logfile
+        filename = '%s_%s' % (self.name, str(self.request.id))
+        return os.path.join(self.task_logging_dirpath, filename)
 
     def add_task_logfile_handler(self):
+        task_logfile = self.task_logfile
         self._temp_loghandlers = {}
-        fh_root = logging.handlers.WatchedFileHandler(self.task_logfile, mode='a+')
+        fh_root = logging.handlers.WatchedFileHandler(task_logfile, mode='a+')
         fh_root.setLevel(logging.DEBUG)
         fh_root.setFormatter(self.root_logger_file_handler.formatter)
         self.root_logger.addHandler(fh_root)
         self._temp_loghandlers[self.root_logger] = fh_root
 
         task_logger = get_logger('celery.task')
-        fh_task = logging.FileHandler(self.task_logfile, mode='a+')
+        fh_task = logging.FileHandler(task_logfile, mode='a+')
         fh_task.setLevel(logging.DEBUG)
         original_file_handler = [handler for handler in task_logger.handlers if
                                  isinstance(handler, WatchedFileHandler)][0]
