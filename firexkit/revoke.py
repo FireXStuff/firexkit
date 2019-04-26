@@ -23,10 +23,10 @@ class RevokedRequests(object):
             cls._instance = RevokedRequests()
         return cls._instance
 
-    def __init__(self, timer_expiry_secs=60):
+    def __init__(self, timer_expiry_secs=60, skip_first_cycle=True):
         self.timer_expiry = timedelta(seconds=timer_expiry_secs)
-        self.revoked_list = None
-        self.last_updated = None
+        self.revoked_list = []
+        self.last_updated = datetime.utcnow() if skip_first_cycle else None
 
     @classmethod
     def get_revoked_list_from_app(cls):
