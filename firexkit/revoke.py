@@ -90,10 +90,14 @@ def get_chain_head(parent, child):
         return get_chain_head(parent=parent, child=one_up)
 
 
-def revoke_chains_recursively(parent, results):
-    pending_children_heads = [get_chain_head(parent=parent, child=c) for c in results]
-    if pending_children_heads:
-        from firexkit.result import get_tasks_names_from_results
-        logger.info('Revoking chain heads of %r -> %r' % (get_tasks_names_from_results(results),
-                                                          get_tasks_names_from_results(pending_children_heads)))
-        revoke_recursively(pending_children_heads)
+def revoke_nodes_up_to_parent(starting_node, parent):
+    from firexkit.result import get_result_logging_name
+    node = starting_node
+    parent_name = get_result_logging_name(parent)
+    while node != parent:
+        one_up = node.parent
+        logger.info('Revoking child %r of parent %r' % (get_result_logging_name(node), parent_name))
+        node.revoke(terminate=True)
+        node = one_up
+
+
