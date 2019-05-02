@@ -14,7 +14,8 @@ from celery.utils.log import get_task_logger, get_logger
 from firexkit.revoke import revoke_recursively
 from firexkit.bag_of_goodies import BagOfGoodies
 from firexkit.argument_conversion import ConverterRegister
-from firexkit.result import wait_on_async_results, get_tasks_names_from_results, wait_for_any_results, RETURN_KEYS_KEY
+from firexkit.result import wait_on_async_results, get_tasks_names_from_results, wait_for_any_results, RETURN_KEYS_KEY, \
+    wait_on_async_result_and_maybe_raise
 
 logger = get_task_logger(__name__)
 
@@ -310,15 +311,22 @@ class FireXTask(Task):
 
     def enqueue_child(self, chain, add_to_enqueued_children=True, **kwargs):
         """Schedule a child task to run"""
-        from firexkit.chain import InjectArgs
+        from firexkit.chain import InjectArgs, verify_chain_arguments
+
         if isinstance(chain, InjectArgs):
             return
 
-        child_result = chain.enqueue(caller_task=self, **kwargs)
+        verify_chain_arguments(chain)
+        child_result = chain.delay()
         if add_to_enqueued_children:
-            self._add_enqueued_child(child_result)
-            if not kwargs.get('block', False):
-                self._update_child_state(child_result, self._PENDING)
+            self._update_child_state(child_result, self._PENDING)
+        if kwargs.get('block', False):
+            wait_on_async_result_and_maybe_raise(result=child_result,
+                                                 raise_exception_on_failure=kwargs.get('raise_exception_on_failure',
+                                                                                       True),
+                                                 caller_task=self)
+            if add_to_enqueued_children:
+                self._update_child_state(child_result, self._UNBLOCKED)
         return child_result
 
     def revoke_pending_children(self):
