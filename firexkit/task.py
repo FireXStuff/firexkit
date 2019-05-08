@@ -321,11 +321,13 @@ class FireXTask(Task):
         if add_to_enqueued_children:
             self._update_child_state(child_result, self._PENDING)
         if block:
-            wait_on_async_result_and_maybe_raise(result=child_result,
-                                                 raise_exception_on_failure=raise_exception_on_failure,
-                                                 caller_task=self)
-            if add_to_enqueued_children:
-                self._update_child_state(child_result, self._UNBLOCKED)
+            try:
+                wait_on_async_result_and_maybe_raise(result=child_result,
+                                                     raise_exception_on_failure=raise_exception_on_failure,
+                                                     caller_task=self)
+            finally:
+                if add_to_enqueued_children:
+                    self._update_child_state(child_result, self._UNBLOCKED)
         return child_result
 
     def revoke_pending_children(self):
