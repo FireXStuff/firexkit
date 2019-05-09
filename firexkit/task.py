@@ -3,6 +3,7 @@ import os
 from collections import OrderedDict
 import inspect
 import traceback
+from contextlib import contextmanager
 from enum import Enum
 from logging.handlers import WatchedFileHandler
 from types import MethodType
@@ -18,6 +19,10 @@ from firexkit.result import wait_on_async_results, get_tasks_names_from_results,
     wait_on_async_result_and_maybe_raise
 
 logger = get_task_logger(__name__)
+
+
+class TaskContext:
+    pass
 
 
 class PendingChildStrategy(Enum):
@@ -66,7 +71,18 @@ class FireXTask(Task):
         self._task_logging_dirpath = None
         self._temp_loghandlers = None
 
-        self._enqueued_children = {}
+    @contextmanager
+    def task_context(self):
+        try:
+            self.context = TaskContext()
+            self.initialize_context()
+            yield
+        finally:
+            del self.context
+
+    def initialize_context(self):
+        self.context.enqueued_children = {}
+        self.context.bog = None
 
     @classmethod
     def is_dynamic_return(cls, value):
@@ -139,36 +155,37 @@ class FireXTask(Task):
         pass
 
     def __call__(self, *args, **kwargs):
-        if not self.request.called_directly:
-            self.add_task_logfile_handler()
-        try:
-            result = self._process_arguments_and_run(*args, **kwargs)
-
-            if self._lagging_children_strategy is PendingChildStrategy.Block:
-                try:
-                    self.wait_for_children()
-                except Exception as e:
-                    logger.debug("The following exception was thrown (and caught) when wait_for_children was "
-                                 "implicitly called by this task's base class:\n" + str(e))
-            return result
-        except Exception as e:
-            logger.debug(traceback.format_exc())
-            logger.error(e)
-            raise
-        finally:
+        with self.task_context():
+            if not self.request.called_directly:
+                self.add_task_logfile_handler()
             try:
-                if self._lagging_children_strategy is not PendingChildStrategy.Continue:
-                    self.revoke_pending_children()
+                result = self._process_arguments_and_run(*args, **kwargs)
+
+                if self._lagging_children_strategy is PendingChildStrategy.Block:
+                    try:
+                        self.wait_for_children()
+                    except Exception as e:
+                        logger.debug("The following exception was thrown (and caught) when wait_for_children was "
+                                     "implicitly called by this task's base class:\n" + str(e))
+                return result
+            except Exception as e:
+                logger.debug(traceback.format_exc())
+                logger.error(e)
+                raise
             finally:
-                self.remove_task_logfile_handler()
+                try:
+                    if self._lagging_children_strategy is not PendingChildStrategy.Continue:
+                        self.revoke_pending_children()
+                finally:
+                    self.remove_task_logfile_handler()
 
     def _process_arguments_and_run(self, *args, **kwargs):
         # Organise the input args by creating a BagOfGoodies
-        self.bog = BagOfGoodies(self.sig, args, kwargs)
+        self.context.bog = BagOfGoodies(self.sig, args, kwargs)
 
         # run any "pre" converters attached to this task
         converted = ConverterRegister.task_convert(task_name=self.name, pre_task=True, **self.bag)
-        self.bog.update(converted)
+        self.context.bog.update(converted)
 
         # give sub-classes a chance to do something with the args
         self.pre_task_run()
@@ -180,11 +197,11 @@ class FireXTask(Task):
 
         # Need to update the dict with the results, if @results was used
         if isinstance(result, dict):
-            self.bog.update(result)
+            self.context.bog.update(result)
 
         # run any post converters attached to this task
         converted = ConverterRegister.task_convert(task_name=self.name, pre_task=False, **self.bag)
-        self.bog.update(converted)
+        self.context.bog.update(converted)
 
         if isinstance(result, dict):
             # update the results with changes from converters
@@ -197,7 +214,7 @@ class FireXTask(Task):
     
     @property
     def bag(self) -> dict:
-        return self.bog.get_bag()
+        return self.context.bog.get_bag()
 
     @property
     def required_args(self) -> list:
@@ -233,11 +250,11 @@ class FireXTask(Task):
 
     @property
     def args(self) -> list:
-        return self.bog.args
+        return self.context.bog.args
 
     @property
     def kwargs(self) -> dict:
-        return self.bog.kwargs
+        return self.context.bog.kwargs
 
     @property
     def bound_args(self) -> dict:
@@ -274,21 +291,21 @@ class FireXTask(Task):
 
     @property
     def enqueued_children(self):
-        return list(self._enqueued_children.keys())
+        return list(self.context.enqueued_children.keys())
 
     @property
     def pending_enqueued_children(self):
-        return [child for child, result in self._enqueued_children.items() if
+        return [child for child, result in self.context.enqueued_children.items() if
                 result.get(self._STATE_KEY) == self._PENDING]
 
     def _add_enqueued_child(self, child_result):
-        if child_result not in self._enqueued_children:
-            self._enqueued_children[child_result] = {}
+        if child_result not in self.context.enqueued_children:
+            self.context.enqueued_children[child_result] = {}
 
     def _update_child_state(self, child_result, state):
-        if child_result not in self._enqueued_children:
+        if child_result not in self.context.enqueued_children:
             self._add_enqueued_child(child_result)
-        self._enqueued_children[child_result][self._STATE_KEY] = state
+        self.context.enqueued_children[child_result][self._STATE_KEY] = state
 
     def wait_for_any_children(self, pending_only=True, **kwargs):
         """Wait for any of the enqueued child tasks to run and complete"""
