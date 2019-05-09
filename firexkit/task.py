@@ -155,29 +155,36 @@ class FireXTask(Task):
         pass
 
     def __call__(self, *args, **kwargs):
+        """
+        This method should not be overridden since it provides the context (i.e., run state).
+        Classes extending FireX should override the _call.
+        """
         with self.task_context():
-            if not self.request.called_directly:
-                self.add_task_logfile_handler()
-            try:
-                result = self._process_arguments_and_run(*args, **kwargs)
+            return self._call(*args, **kwargs)
 
-                if self._lagging_children_strategy is PendingChildStrategy.Block:
-                    try:
-                        self.wait_for_children()
-                    except Exception as e:
-                        logger.debug("The following exception was thrown (and caught) when wait_for_children was "
-                                     "implicitly called by this task's base class:\n" + str(e))
-                return result
-            except Exception as e:
-                logger.debug(traceback.format_exc())
-                logger.error(e)
-                raise
-            finally:
+    def _call(self, *args, **kwargs):
+        if not self.request.called_directly:
+            self.add_task_logfile_handler()
+        try:
+            result = self._process_arguments_and_run(*args, **kwargs)
+
+            if self._lagging_children_strategy is PendingChildStrategy.Block:
                 try:
-                    if self._lagging_children_strategy is not PendingChildStrategy.Continue:
-                        self.revoke_pending_children()
-                finally:
-                    self.remove_task_logfile_handler()
+                    self.wait_for_children()
+                except Exception as e:
+                    logger.debug("The following exception was thrown (and caught) when wait_for_children was "
+                                 "implicitly called by this task's base class:\n" + str(e))
+            return result
+        except Exception as e:
+            logger.debug(traceback.format_exc())
+            logger.error(e)
+            raise
+        finally:
+            try:
+                if self._lagging_children_strategy is not PendingChildStrategy.Continue:
+                    self.revoke_pending_children()
+            finally:
+                self.remove_task_logfile_handler()
 
     def _process_arguments_and_run(self, *args, **kwargs):
         # Organise the input args by creating a BagOfGoodies
