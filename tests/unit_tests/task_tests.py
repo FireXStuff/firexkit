@@ -1,5 +1,6 @@
-
 import unittest
+
+import types
 from celery import Celery
 
 from firexkit.argument_conversion import ConverterRegister
@@ -144,6 +145,7 @@ class TaskTests(unittest.TestCase):
                 pass  # pragma: no cover
 
     def test_properties(self):
+        the_test = self
         test_app = Celery()
 
         # noinspection PyUnusedLocal
@@ -163,113 +165,145 @@ class TaskTests(unittest.TestCase):
 
         with self.subTest('One required argument'):
             value = 1
+
+            def post_task_run(self, results):
+                the_test.assertListEqual(self.args, [value])
+                the_test.assertDictEqual(self.kwargs, {})
+                the_test.assertListEqual(self.required_args, ['arg1'])
+                the_test.assertDictEqual(self.bound_args, {'arg1': value})
+                the_test.assertDictEqual(self.default_bound_args, {})
+                the_test.assertDictEqual(self.all_args, {'arg1': value})
+                the_test.assertDictEqual(self.bag, {'arg1': value})
+                the_test.assertDictEqual(self.abog, {'arg1': value})
+
+            a.post_task_run = types.MethodType(post_task_run, a)
             a(value)
-            self.assertListEqual(a.args, [value])
-            self.assertDictEqual(a.kwargs, {})
-            self.assertListEqual(a.required_args, ['arg1'])
-            self.assertDictEqual(a.bound_args, {'arg1': value})
-            self.assertDictEqual(a.default_bound_args, {})
-            self.assertDictEqual(a.all_args, {'arg1': value})
-            self.assertDictEqual(a.bag, {'arg1': value})
-            self.assertDictEqual(a.abog, {'arg1': value})
 
         with self.subTest('One required argument with keyword'):
             value = 1
+
+            def post_task_run(self, results):
+                the_test.assertListEqual(self.args, [])
+                the_test.assertDictEqual(self.kwargs, {'arg1': value})
+                the_test.assertListEqual(self.required_args, ['arg1'])
+                the_test.assertDictEqual(self.bound_args, {'arg1': value})
+                the_test.assertDictEqual(self.default_bound_args, {})
+                the_test.assertDictEqual(self.all_args, {'arg1': value})
+                the_test.assertDictEqual(self.bag, {'arg1': value})
+                the_test.assertDictEqual(self.abog, {'arg1': value})
+
+            a.post_task_run = types.MethodType(post_task_run, a)
             a(arg1=value)
-            self.assertListEqual(a.args, [])
-            self.assertDictEqual(a.kwargs, {'arg1': value})
-            self.assertListEqual(a.required_args, ['arg1'])
-            self.assertDictEqual(a.bound_args, {'arg1': value})
-            self.assertDictEqual(a.default_bound_args, {})
-            self.assertDictEqual(a.all_args, {'arg1': value})
-            self.assertDictEqual(a.bag, {'arg1': value})
-            self.assertDictEqual(a.abog, {'arg1': value})
 
         with self.subTest('One optional argument'):
             value = 1
+
+            def post_task_run(self, results):
+                the_test.assertListEqual(self.args, [value])
+                the_test.assertDictEqual(self.kwargs, {})
+                the_test.assertListEqual(self.required_args, [])
+                the_test.assertDictEqual(self.bound_args, {'arg1': value})
+                the_test.assertDictEqual(self.default_bound_args, {})
+                the_test.assertDictEqual(self.all_args, {'arg1': value})
+                the_test.assertDictEqual(self.bag, {'arg1': value})
+                the_test.assertDictEqual(self.abog, {'arg1': value})
+
+            b.post_task_run = types.MethodType(post_task_run, b)
             b(value)
-            self.assertListEqual(b.args, [value])
-            self.assertDictEqual(b.kwargs, {})
-            self.assertListEqual(b.required_args, [])
-            self.assertDictEqual(b.bound_args, {'arg1': value})
-            self.assertDictEqual(b.default_bound_args, {})
-            self.assertDictEqual(b.all_args, {'arg1': value})
-            self.assertDictEqual(b.bag, {'arg1': value})
-            self.assertDictEqual(b.abog, {'arg1': value})
 
         with self.subTest('One optional argument with no value'):
-            value=None
+            value = None
+
+            def post_task_run(self, results):
+                the_test.assertListEqual(self.args, [])
+                the_test.assertDictEqual(self.kwargs, {})
+                the_test.assertListEqual(self.required_args, [])
+                the_test.assertDictEqual(self.bound_args, {})
+                the_test.assertDictEqual(self.default_bound_args, {'arg1': value})
+                the_test.assertDictEqual(self.all_args, {'arg1': value})
+                the_test.assertDictEqual(self.bag, {})
+                the_test.assertDictEqual(self.abog, {'arg1': value})
+
+            b.post_task_run = types.MethodType(post_task_run, b)
             b()
-            self.assertListEqual(b.args, [])
-            self.assertDictEqual(b.kwargs, {})
-            self.assertListEqual(b.required_args, [])
-            self.assertDictEqual(b.bound_args, {})
-            self.assertDictEqual(b.default_bound_args, {'arg1': value})
-            self.assertDictEqual(b.all_args, {'arg1': value})
-            self.assertDictEqual(b.bag, {})
-            self.assertDictEqual(b.abog, {'arg1': value})
 
         with self.subTest('One optional argument with keyword'):
             value = 1
+
+            def post_task_run(self, results):
+                the_test.assertListEqual(self.args, [])
+                the_test.assertDictEqual(self.kwargs, {'arg1': value})
+                the_test.assertListEqual(self.required_args, [])
+                the_test.assertDictEqual(self.bound_args, {'arg1': value})
+                the_test.assertDictEqual(self.default_bound_args, {})
+                the_test.assertDictEqual(self.all_args, {'arg1': value})
+                the_test.assertDictEqual(self.bag, {'arg1': value})
+                the_test.assertDictEqual(self.abog, {'arg1': value})
+
+            b.post_task_run = types.MethodType(post_task_run, b)
             b(arg1=value)
-            self.assertListEqual(b.args, [])
-            self.assertDictEqual(b.kwargs, {'arg1': value})
-            self.assertListEqual(b.required_args, [])
-            self.assertDictEqual(b.bound_args, {'arg1': value})
-            self.assertDictEqual(b.default_bound_args, {})
-            self.assertDictEqual(b.all_args, {'arg1': value})
-            self.assertDictEqual(b.bag, {'arg1': value})
-            self.assertDictEqual(b.abog, {'arg1': value})
 
         with self.subTest('One required and one optional argument '):
             value1 = 1
             value2 = 2
+
+            def post_task_run(self, results):
+                the_test.assertListEqual(self.args, [value1, value2])
+                the_test.assertDictEqual(self.kwargs, {})
+                the_test.assertListEqual(self.required_args, ['arg1'])
+                the_test.assertDictEqual(self.bound_args, {'arg1': value1,
+                                                           'arg2': value2})
+                the_test.assertDictEqual(self.default_bound_args, {})
+                the_test.assertDictEqual(self.all_args, {'arg1': value1,
+                                                         'arg2': value2})
+                the_test.assertDictEqual(self.bag, {'arg1': value1,
+                                                    'arg2': value2})
+                the_test.assertDictEqual(self.abog, {'arg1': value1,
+                                                     'arg2': value2})
+
+            c.post_task_run = types.MethodType(post_task_run, c)
             c(value1, value2)
-            self.assertListEqual(c.args, [value1, value2])
-            self.assertDictEqual(c.kwargs, {})
-            self.assertListEqual(c.required_args, ['arg1'])
-            self.assertDictEqual(c.bound_args, {'arg1': value1,
-                                                'arg2': value2})
-            self.assertDictEqual(c.default_bound_args, {})
-            self.assertDictEqual(c.all_args, {'arg1': value1,
-                                              'arg2': value2})
-            self.assertDictEqual(c.bag, {'arg1': value1,
-                                         'arg2': value2})
-            self.assertDictEqual(c.abog, {'arg1': value1,
-                                          'arg2': value2})
 
         with self.subTest('One required and one optional argument with keyword'):
             value1 = 1
             value2 = 2
+
+            def post_task_run(self, results):
+                the_test.assertListEqual(self.args, [])
+                the_test.assertDictEqual(self.kwargs, {'arg1': value1,
+                                                       'arg2': value2})
+                the_test.assertListEqual(self.required_args, ['arg1'])
+                the_test.assertDictEqual(self.bound_args, {'arg1': value1,
+                                                           'arg2': value2})
+                the_test.assertDictEqual(self.default_bound_args, {})
+                the_test.assertDictEqual(self.all_args, {'arg1': value1,
+                                                         'arg2': value2})
+                the_test.assertDictEqual(self.bag, {'arg1': value1,
+                                                    'arg2': value2})
+                the_test.assertDictEqual(self.abog, {'arg1': value1,
+                                                     'arg2': value2})
+
+            c.post_task_run = types.MethodType(post_task_run, c)
             c(arg2=value2, arg1=value1)
-            self.assertListEqual(c.args, [])
-            self.assertDictEqual(c.kwargs, {'arg1': value1,
-                                            'arg2': value2})
-            self.assertListEqual(c.required_args, ['arg1'])
-            self.assertDictEqual(c.bound_args, {'arg1': value1,
-                                                'arg2': value2})
-            self.assertDictEqual(c.default_bound_args, {})
-            self.assertDictEqual(c.all_args, {'arg1': value1,
-                                              'arg2': value2})
-            self.assertDictEqual(c.bag, {'arg1': value1,
-                                         'arg2': value2})
-            self.assertDictEqual(c.abog, {'arg1': value1,
-                                          'arg2': value2})
 
         with self.subTest('One required, one optional provided'):
             value1 = 1
             value2 = None
+
+            def post_task_run(self, results):
+                the_test.assertListEqual(self.args, [value1])
+                the_test.assertDictEqual(self.kwargs, {})
+                the_test.assertListEqual(self.required_args, ['arg1'])
+                the_test.assertDictEqual(self.bound_args, {'arg1': value1})
+                the_test.assertDictEqual(self.default_bound_args, {'arg2': value2})
+                the_test.assertDictEqual(self.all_args, {'arg1': value1,
+                                                         'arg2': value2})
+                the_test.assertDictEqual(self.bag, {'arg1': value1})
+                the_test.assertDictEqual(self.abog, {'arg1': value1,
+                                                     'arg2': value2})
+
+            c.post_task_run = types.MethodType(post_task_run, c)
             c(value1)
-            self.assertListEqual(c.args, [value1])
-            self.assertDictEqual(c.kwargs, {})
-            self.assertListEqual(c.required_args, ['arg1'])
-            self.assertDictEqual(c.bound_args, {'arg1': value1})
-            self.assertDictEqual(c.default_bound_args, {'arg2': value2})
-            self.assertDictEqual(c.all_args, {'arg1': value1,
-                                              'arg2': value2})
-            self.assertDictEqual(c.bag, {'arg1': value1})
-            self.assertDictEqual(c.abog, {'arg1': value1,
-                                          'arg2': value2})
 
     def test_sig_bind(self):
         test_app = Celery()
