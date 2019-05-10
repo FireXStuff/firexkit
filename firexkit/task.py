@@ -3,6 +3,7 @@ import os
 from collections import OrderedDict
 import inspect
 import traceback
+from celery.result import AsyncResult
 from contextlib import contextmanager
 from enum import Enum
 from logging.handlers import WatchedFileHandler
@@ -16,7 +17,7 @@ from firexkit.revoke import revoke_recursively
 from firexkit.bag_of_goodies import BagOfGoodies
 from firexkit.argument_conversion import ConverterRegister
 from firexkit.result import wait_on_async_results, get_tasks_names_from_results, wait_for_any_results, RETURN_KEYS_KEY, \
-    wait_on_async_result_and_maybe_raise
+    wait_on_async_result_and_maybe_raise, get_result_logging_name
 
 logger = get_task_logger(__name__)
 
@@ -354,12 +355,16 @@ class FireXTask(Task):
                     self._update_child_state(child_result, self._UNBLOCKED)
         return child_result
 
-    def revoke_pending_children(self):
+    def revoke_pending_children(self, **kwargs):
         pending_children = self.pending_enqueued_children
         if pending_children:
-            logger.info('Pending children of current task exist. '
-                        'Revoking %r' % get_tasks_names_from_results(pending_children))
-            revoke_recursively(pending_children)
+            logger.info('Pending children of current task exist.')
+            [self.revoke_child(child_result, **kwargs) for child_result in pending_children]
+
+    def revoke_child(self, result: AsyncResult, **kwargs):
+        logger.debug('Revoking child %s' % get_result_logging_name(result))
+        revoke_recursively(result, **kwargs)
+        self._update_child_state(result, self._UNBLOCKED)
 
     @property
     def root_logger(self):
