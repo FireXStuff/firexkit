@@ -107,12 +107,10 @@ class BagTests(unittest.TestCase):
                     'submission_dir': '~/firex7',
                     'unconverted_chain_args': {'missing': '@final', 'cc_firex': 'False', 'start': 'yep',
                                                'disable_blaze': True,
-                                               'original_program': '~/firex7/firex_bin/firex',
                                                'plugins': '~/firex7/flow_tests/'
                                                           'argument_validation_tests.py'},
                     'copy_on_task_failure': False, 'chain': 'beginning,ending',
                     'missing': '@final',  # <-- This is what we are testing
-                    'original_program': '~/firex7/firex_bin/firex',
                     'argv': ['~/firex7/firex.py', 'submit', '--chain', 'beginning,ending', '--start',
                              'yep', '--missing', '@final', '--sync', '--no_email', '--cc_firex', 'False',
                              '--monitor_verbosity', 'none', '--flame_port', '54560', '--flame_timeout', '60',
