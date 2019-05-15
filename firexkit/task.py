@@ -395,7 +395,7 @@ class FireXTask(Task):
 
     @property
     def task_logfile(self):
-        filename = '%s_%s' % (self.name, str(self.request.id))
+        filename = '%s_%s.html' % (self.name, str(self.request.id))
         return os.path.join(self.task_logging_dirpath, filename)
 
     def add_task_logfile_handler(self):
