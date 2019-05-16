@@ -1,3 +1,5 @@
+import sys
+
 import logging
 import os
 from collections import OrderedDict
@@ -71,6 +73,7 @@ class FireXTask(Task):
         self._file_logging_dir_path = None
         self._task_logging_dirpath = None
         self._temp_loghandlers = None
+        self.code_filepath = self.get_module_file_location()
 
     @contextmanager
     def task_context(self):
@@ -84,6 +87,9 @@ class FireXTask(Task):
     def initialize_context(self):
         self.context.enqueued_children = {}
         self.context.bog = None
+
+    def get_module_file_location(self):
+        return sys.modules[self.__module__].__file__
 
     @classmethod
     def is_dynamic_return(cls, value):
