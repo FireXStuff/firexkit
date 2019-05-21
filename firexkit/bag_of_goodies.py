@@ -122,10 +122,13 @@ class BagOfGoodies(object):
     def pop(self, k, *default):
         for l in [self.return_args, self.kwargs]:
             try:
-                return l.pop(k)
+                v = l.pop(k)
             except KeyError:
                 pass
-        if default:
-            return default[0]
-        else:
-            raise KeyError('%s not in bog.kwargs or bog.return_keys')
+        try:
+            return v
+        except NameError:
+            try:
+                return default[0]
+            except IndexError:
+                raise KeyError('%s not in bog.kwargs or bog.return_keys')

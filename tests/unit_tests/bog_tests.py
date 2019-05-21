@@ -192,6 +192,31 @@ class BagTests(unittest.TestCase):
         a, k = bog.split_for_signature()
         t.a_func(*a, **k)
 
+    def test_pop(self):
+        # noinspection PyUnusedLocal
+        def some_func(a, b=None):
+            # Should not reach here. We only want the signature
+            pass  # pragma: no cover
+        sig = inspect.signature(some_func)
+
+        with self.subTest('Testing popping from kwargs'):
+            bog = BagOfGoodies(sig, (1,), {'b': 2})
+            self.assertEqual(bog.pop('b'), 2)
+            self.assertNotIn('b', bog.kwargs)
+            self.assertNotIn('b', bog.return_args)
+            with self.assertRaises(KeyError):
+                bog.pop('b')
+            self.assertEqual(bog.pop('b', 0), 0)
+
+        with self.subTest('Testing popping from return_args'):
+            bog = BagOfGoodies(sig, (1,), {'b': 2, 'c': 3})
+            self.assertEqual(bog.pop('c'), 3)
+            self.assertNotIn('c', bog.kwargs)
+            self.assertNotIn('c', bog.return_args)
+            with self.assertRaises(KeyError):
+                bog.pop('c')
+            self.assertEqual(bog.pop('c', 5), 5)
+
 
 # noinspection PyUnusedLocal
 def func_a(x):
