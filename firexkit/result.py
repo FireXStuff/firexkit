@@ -120,7 +120,7 @@ def send_block_task_states_to_caller_task(func):
 
 
 @send_block_task_states_to_caller_task
-def wait_on_async_results(results, max_wait=None, depth=1, callbacks: [WaitLoopCallBack]=tuple(),
+def wait_on_async_results(results, max_wait=None, callbacks: [WaitLoopCallBack]=tuple(),
                           sleep_between_iterations=0.1):
     if not results:
         return
@@ -134,7 +134,7 @@ def wait_on_async_results(results, max_wait=None, depth=1, callbacks: [WaitLoopC
     failures = []
     for result in results:
         name = get_result_logging_name(result)
-        logger.debug('-'*depth*2 + '> Waiting for %s to become ready' % name)
+        logger.debug('-> Waiting for %s to become ready' % name)
         try:
             while not is_result_ready(result) and not RevokedRequests.instance().is_revoked(result):
 
@@ -149,9 +149,9 @@ def wait_on_async_results(results, max_wait=None, depth=1, callbacks: [WaitLoopC
                 for callback in callbacks:
                     if trials % (callback.frequency / sleep_between_iterations) == 0:
                         callback.func(**callback.kwargs)
-            if result.state == REVOKED and depth == 1:
+            if result.state == REVOKED:
                 raise ChainRevokedException(name)
-            if result.state == FAILURE and depth == 1:
+            if result.state == FAILURE:
                 raise ChainInterruptedException(name)
 
         except (ChainRevokedException, ChainInterruptedException) as e:
