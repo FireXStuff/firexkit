@@ -7,7 +7,7 @@ from celery.canvas import chain, Signature
 from celery.local import PromiseProxy
 from celery.utils.log import get_task_logger
 
-from firexkit.result import wait_on_async_result_and_maybe_raise
+from firexkit.result import wait_on_async_results_and_maybe_raise
 from firexkit.bag_of_goodies import BagOfGoodies
 from firexkit.task import parse_signature, FireXTask, undecorate, ReturnsCodingException, get_attr_unwrapped
 
@@ -151,7 +151,7 @@ def _enqueue(self, block=False, raise_exception_on_failure=True, caller_task=Non
     verify_chain_arguments(self)
     result = self.delay()
     if block:
-        wait_on_async_result_and_maybe_raise(result=result,
+        wait_on_async_results_and_maybe_raise(results=result,
                                              raise_exception_on_failure=raise_exception_on_failure,
                                              caller_task=caller_task)
     return result

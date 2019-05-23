@@ -1,10 +1,12 @@
 import unittest
 from celery import Celery
 from celery.result import AsyncResult
-from celery.states import SUCCESS, FAILURE, REVOKED, STARTED
+from celery.states import SUCCESS, FAILURE, REVOKED, STARTED, PENDING
+from contextlib import contextmanager
+
 from firexkit.result import wait_on_async_results, get_task_name_from_result, get_result_logging_name, \
     is_result_ready, WaitLoopCallBack, WaitOnChainTimeoutError, ChainRevokedException, ChainInterruptedException, \
-    get_tasks_names_from_results
+    get_tasks_names_from_results, MultipleFailuresException
 from firexkit.revoke import RevokedRequests
 
 
@@ -160,33 +162,34 @@ class WaitOnResultsTests(unittest.TestCase):
         finally:
             mock_result.backend = None
 
-    def test_wait_on_many_results(self):
-        setup_revoke()
-        test_app, mock_results = get_mocks(["a1", "a2", "a3"])
+    @contextmanager
+    def prime_mocks(self, mock_results, expected_hits):
         hits = []
         for r in mock_results:
             def wait_and_go(result=r):
                 result.state = SUCCESS
                 hits.append(result)
                 return STARTED
+
             r.state = wait_and_go
-        self.assertIsNone(wait_on_async_results(results=mock_results))
-        self.assertEqual(len(hits), 3)
+        yield
+        self.assertEqual(len(hits), expected_hits)
+
+    def test_wait_on_many_results(self):
+        setup_revoke()
+        test_app, mock_results = get_mocks(["a1", "a2", "a3"])
+
+        with self.prime_mocks(mock_results, 3):
+            self.assertIsNone(wait_on_async_results(results=mock_results))
 
     def test_wait_on_chain(self):
         setup_revoke()
         test_app, mock_results = get_mocks(["a0", "a1", "a2"])
         MockResult.set_heritage(mock_results[1], mock_results[2])
         MockResult.set_heritage(mock_results[0], mock_results[1])
-        hits = []
-        for r in mock_results:
-            def wait_and_go(result=r):
-                result.state = SUCCESS
-                hits.append(result)
-                return STARTED
-            r.state = wait_and_go
-        self.assertIsNone(wait_on_async_results(results=mock_results[0]))
-        self.assertEqual(len(hits), 3)
+
+        with self.prime_mocks(mock_results, 3):
+            self.assertIsNone(wait_on_async_results(results=mock_results[0]))
 
     def test_self_parent_recursion(self):
         setup_revoke()
@@ -235,16 +238,46 @@ class WaitOnResultsTests(unittest.TestCase):
         MockResult.set_heritage(mock_results[1], mock_results[2])
         MockResult.set_heritage(mock_results[0], mock_results[1])
 
-        # middle of the chain is revoked
-        mock_results[0].state = SUCCESS
-        mock_results[1].state = REVOKED
-        mock_results[2].state = STARTED
-        with self.assertRaises(ChainRevokedException):
-            wait_on_async_results(results=mock_results[0])
+        for i in range(3):
+            # middle of the chain is revoked
+            mock_results[0].state = SUCCESS
+            mock_results[1].state = SUCCESS
+            mock_results[2].state = STARTED
 
-        # parent of the chain is revoked
-        mock_results[0].state = REVOKED
-        mock_results[1].state = SUCCESS
-        mock_results[2].state = SUCCESS
-        with self.assertRaises(ChainRevokedException):
-            wait_on_async_results(results=mock_results[0])
+            mock_results[i].state = REVOKED
+            with self.assertRaises(ChainRevokedException):
+                wait_on_async_results(results=mock_results[2])
+
+    def test_wait_for_all_even_on_failure(self):
+        setup_revoke()
+        test_app, mock_results = get_mocks(["a0", "a1", "a2"])
+
+        with self.prime_mocks(mock_results, 2):
+            # a0 and a2 should both be hit, but not a1
+            mock_results[1].state = FAILURE
+            mock_results[1].results = OSError()
+            with self.assertRaises(ChainInterruptedException):
+                wait_on_async_results(results=mock_results)
+
+    def test_multiple_failures(self):
+        setup_revoke()
+        test_app, mock_results = get_mocks(["a0", "a1", "a2", "a3"])
+
+        with self.prime_mocks(mock_results, 1):
+            # a0 and a1 should both have failure
+            mock_results[1].state = FAILURE
+            mock_results[1].results = OSError()
+            mock_results[2].state = PENDING
+            mock_results[3].state = FAILURE
+            mock_results[3].results = NotImplementedError()
+
+            # make a1-a2 a chain, so a2 will not be hit
+            MockResult.set_heritage(mock_results[1], mock_results[2])
+            mock_results.remove(mock_results[1])
+
+            with self.assertRaises(MultipleFailuresException) as multi_failure:
+                self.assertIsNone(wait_on_async_results(results=mock_results))
+            multi_failure_exception = multi_failure.exception
+            self.assertEqual(len(multi_failure_exception.failures), 2)
+            self.assertTrue(isinstance(multi_failure_exception.failures[0], ChainInterruptedException))
+            self.assertTrue(isinstance(multi_failure_exception.failures[1], ChainInterruptedException))

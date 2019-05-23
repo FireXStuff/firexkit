@@ -18,8 +18,8 @@ from celery.utils.log import get_task_logger, get_logger
 from firexkit.revoke import revoke_recursively
 from firexkit.bag_of_goodies import BagOfGoodies
 from firexkit.argument_conversion import ConverterRegister
-from firexkit.result import wait_on_async_results, get_tasks_names_from_results, wait_for_any_results, RETURN_KEYS_KEY, \
-    wait_on_async_result_and_maybe_raise, get_result_logging_name
+from firexkit.result import get_tasks_names_from_results, wait_for_any_results, \
+    RETURN_KEYS_KEY, wait_on_async_results_and_maybe_raise, get_result_logging_name
 
 logger = get_task_logger(__name__)
 
@@ -337,10 +337,13 @@ class FireXTask(Task):
         """Wait for the explicitly provided child_results to run and complete"""
         if child_results:
             logger.debug('Waiting for enqueued children: %r' % get_tasks_names_from_results(child_results))
-            wait_on_async_results(child_results, caller_task=self, **kwargs)
-            [self._update_child_state(child_result, self._UNBLOCKED) for child_result in child_results]
+            try:
+                wait_on_async_results_and_maybe_raise(child_results, caller_task=self, **kwargs)
+            finally:
+                [self._update_child_state(child_result, self._UNBLOCKED) for child_result in child_results]
 
-    def enqueue_child(self, chain, add_to_enqueued_children=True, block=False, raise_exception_on_failure=True):
+    def enqueue_child(self, chain, add_to_enqueued_children=True, block=False,
+                      **kwargs):
         """Schedule a child task to run"""
         from firexkit.chain import InjectArgs, verify_chain_arguments
 
@@ -353,9 +356,8 @@ class FireXTask(Task):
             self._update_child_state(child_result, self._PENDING)
         if block:
             try:
-                wait_on_async_result_and_maybe_raise(result=child_result,
-                                                     raise_exception_on_failure=raise_exception_on_failure,
-                                                     caller_task=self)
+                wait_on_async_results_and_maybe_raise(results=child_result,
+                                                      caller_task=self, **kwargs)
             finally:
                 if add_to_enqueued_children:
                     self._update_child_state(child_result, self._UNBLOCKED)

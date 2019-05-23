@@ -4,7 +4,7 @@ from collections import namedtuple
 import traceback
 from celery.result import AsyncResult
 from celery.signals import task_prerun
-from celery.states import FAILURE
+from celery.states import FAILURE, REVOKED
 from celery.utils.log import get_task_logger
 from firexkit.revoke import RevokedRequests
 
@@ -97,7 +97,7 @@ def _check_for_traceback_in_parents(result):
     if parent:
         if parent.failed():
             raise ChainInterruptedException(get_result_logging_name(parent))
-        elif parent.state == 'REVOKED':
+        elif parent.state == REVOKED:
             raise ChainRevokedException(get_result_logging_name(parent))
         else:
             return _check_for_traceback_in_parents(parent)
@@ -131,40 +131,43 @@ def wait_on_async_results(results, max_wait=None, depth=1, callbacks: [WaitLoopC
     if isinstance(results, AsyncResult):
         results = [results]
 
+    failures = []
     for result in results:
         name = get_result_logging_name(result)
         logger.debug('-'*depth*2 + '> Waiting for %s to become ready' % name)
-        while not is_result_ready(result) and not RevokedRequests.instance().is_revoked(result):
+        try:
+            while not is_result_ready(result) and not RevokedRequests.instance().is_revoked(result):
 
-            _check_for_traceback_in_parents(result)
+                _check_for_traceback_in_parents(result)
 
-            if max_trials and trials >= max_trials:
-                raise WaitOnChainTimeoutError('Result ID %s was not ready in %d seconds' % (name, max_wait))
-            time.sleep(sleep_between_iterations)
-            trials += 1
+                if max_trials and trials >= max_trials:
+                    raise WaitOnChainTimeoutError('Result ID %s was not ready in %d seconds' % (name, max_wait))
+                time.sleep(sleep_between_iterations)
+                trials += 1
 
-            # callbacks
-            for callback in callbacks:
-                if trials % (callback.frequency / sleep_between_iterations) == 0:
-                    callback.func(**callback.kwargs)
-        if result.state == 'REVOKED' and depth == 1:
-            raise ChainRevokedException(name)
-        children = result.children
-        if children:
-            for child in children:
-                if child == result:
-                    logger.error('OOPS: INFINITE RECURSION WAS BLOCKED for %s' % name)
-                else:
-                    wait_on_async_results(child, max_wait, depth + 1, callbacks,
-                                          sleep_between_iterations=sleep_between_iterations)
+                # callbacks
+                for callback in callbacks:
+                    if trials % (callback.frequency / sleep_between_iterations) == 0:
+                        callback.func(**callback.kwargs)
+            if result.state == REVOKED and depth == 1:
+                raise ChainRevokedException(name)
+            if result.state == FAILURE and depth == 1:
+                raise ChainInterruptedException(name)
+
+        except (ChainRevokedException, ChainInterruptedException) as e:
+            failures.append(e)
+
+    if len(failures) == 1:
+        raise failures[0]
+    elif failures:
+        multi_exception = MultipleFailuresException()
+        multi_exception.failures = failures
+        raise multi_exception
 
 
-def wait_on_async_result_and_maybe_raise(result, raise_exception_on_failure=True, caller_task=None):
+def wait_on_async_results_and_maybe_raise(results, raise_exception_on_failure=True, caller_task=None, **kwargs):
     try:
-        wait_on_async_results(results=result, caller_task=caller_task)
-        logger.debug(get_result_logging_name(result) + ' completed. Unblocking.')
-        if result.failed():
-            raise ChainInterruptedException(get_result_logging_name(result))
+        wait_on_async_results(results=results, caller_task=caller_task, **kwargs)
     except ChainInterruptedException:
         if raise_exception_on_failure:
             raise
@@ -205,6 +208,13 @@ class ChainInterruptedException(Exception):
 
     def __init__(self, microservice_name):
         super(ChainInterruptedException, self).__init__(self.MESSAGE % microservice_name)
+
+
+class MultipleFailuresException(ChainInterruptedException):
+    MESSAGE = "The chain has been interrupted by multiple failing microservices"
+
+    def __init__(self):
+        super(ChainInterruptedException, self).__init__(self.MESSAGE)
 
 
 def get_task_results(results: dict) -> dict:
