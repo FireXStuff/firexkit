@@ -166,10 +166,13 @@ class WaitOnResultsTests(unittest.TestCase):
     def prime_mocks(self, mock_results, expected_hits):
         hits = []
         for r in mock_results:
-            def wait_and_go(result=r):
-                result.state = SUCCESS
-                hits.append(result)
-                return STARTED
+            def wait_and_go(r1=r):
+                def started_and_go(r2=r1):
+                    r2.state = SUCCESS
+                    hits.append(r2)
+                    return STARTED
+                r1.state = started_and_go
+                return PENDING
 
             r.state = wait_and_go
         yield
@@ -189,7 +192,7 @@ class WaitOnResultsTests(unittest.TestCase):
         MockResult.set_heritage(mock_results[0], mock_results[1])
 
         with self.prime_mocks(mock_results, 3):
-            self.assertIsNone(wait_on_async_results(results=mock_results[0]))
+            self.assertIsNone(wait_on_async_results(results=mock_results[2]))
 
     def test_self_parent_recursion(self):
         setup_revoke()
@@ -221,9 +224,9 @@ class WaitOnResultsTests(unittest.TestCase):
         MockResult.set_heritage(mock_results[0], mock_results[1])
         mock_results[0].state = SUCCESS
         mock_results[1].state = FAILURE
-        mock_results[2].state = STARTED
+        mock_results[2].state = PENDING
         with self.assertRaises(ChainInterruptedException):
-            wait_on_async_results(results=mock_results[0])
+            wait_on_async_results(results=mock_results[2])
 
     def test_timeout(self):
         setup_revoke()
