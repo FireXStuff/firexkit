@@ -251,6 +251,14 @@ class WaitOnResultsTests(unittest.TestCase):
             with self.assertRaises(ChainRevokedException):
                 wait_on_async_results(results=mock_results[2])
 
+    def test_wait_on_revoked_result(self):
+        setup_revoke(["rev"])
+        test_app, mock_result = get_mocks(["rev"])
+        mock_result.state = PENDING
+        with self.assertRaises(ChainRevokedException):
+            wait_on_async_results(results=mock_result)
+
+
     def test_wait_for_all_even_on_failure(self):
         setup_revoke()
         test_app, mock_results = get_mocks(["a0", "a1", "a2"])

@@ -136,7 +136,9 @@ def wait_on_async_results(results, max_wait=None, callbacks: [WaitLoopCallBack]=
         name = get_result_logging_name(result)
         logger.debug('-> Waiting for %s to become ready' % name)
         try:
-            while not is_result_ready(result) and not RevokedRequests.instance().is_revoked(result):
+            while not is_result_ready(result):
+                if RevokedRequests.instance().is_revoked(result):
+                    raise ChainRevokedException(name)
 
                 _check_for_traceback_in_parents(result)
 
