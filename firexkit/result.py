@@ -198,14 +198,18 @@ class WaitOnChainTimeoutError(Exception):
     pass
 
 
-class ChainRevokedException(Exception):
+class ChainException(Exception):
+    pass
+
+
+class ChainRevokedException(ChainException):
     MESSAGE = "The chain has been interrupted by the revocation of microservice %s"
 
     def __init__(self, microservice_name):
         super(ChainRevokedException, self).__init__(self.MESSAGE % microservice_name)
 
 
-class ChainInterruptedException(Exception):
+class ChainInterruptedException(ChainException):
     MESSAGE = "The chain has been interrupted by a failure in microservice %s"
 
     def __init__(self, microservice_name):
