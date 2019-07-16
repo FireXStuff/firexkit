@@ -41,10 +41,11 @@ class RevokedRequests(object):
                 revoked_list += l
         return revoked_list
 
-    def update(self):
+    def update(self, verbose=False):
         self.revoked_list = self.get_revoked_list_from_app()
         self.last_updated = datetime.utcnow()
-        logger.debug('RevokedRequests list updated at %s to %r' % (self.last_updated, self.revoked_list))
+        if verbose:
+            logger.debug('RevokedRequests list updated at %s to %r' % (self.last_updated, self.revoked_list))
 
     def _task_in_revoked_list(self, result_id):
         if self.last_updated is None:
