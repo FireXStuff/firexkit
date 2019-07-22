@@ -76,9 +76,17 @@ def revoke_recursively(results, depth=1, terminate=True, wait=False, timeout=Non
         if children:
             revoke_recursively(children, depth=depth+1, terminate=terminate, wait=wait, timeout=timeout)
         else:
-            result.revoke(terminate=terminate, wait=wait, timeout=timeout)
+            ready = False
+            try:
+                ready = result.ready()
+            except Exception:
+                pass
             from firexkit.result import get_result_logging_name
-            logger.info('='*depth + '> Revoked %r' % get_result_logging_name(result))
+            if ready:
+                logger.info('='*depth + '> %r became ready; not revoking' % get_result_logging_name(result))
+            else:
+                result.revoke(terminate=terminate, wait=wait, timeout=timeout)
+                logger.info('='*depth + '> Revoked %r' % get_result_logging_name(result))
 
 
 def get_chain_head(parent, child):
