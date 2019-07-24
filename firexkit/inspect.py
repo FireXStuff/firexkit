@@ -25,12 +25,22 @@ def inspect_with_retry(inspect_retry_timeout=30, inspect_method=None, **inspect_
     return _inspect()
 
 
-def get_active_tasks(**kwargs):
+def get_active(**kwargs):
     kwargs.pop('inspect_method', None)
     return inspect_with_retry(inspect_method='active', **kwargs)
 
 
-def get_revoked_tasks(**kwargs):
+def get_reserved(**kwargs):
+    kwargs.pop('inspect_method', None)
+    return inspect_with_retry(inspect_method='reserved', **kwargs)
+
+
+def get_scheduled(**kwargs):
+    kwargs.pop('inspect_method', None)
+    return inspect_with_retry(inspect_method='scheduled', **kwargs)
+
+
+def get_revoked(**kwargs):
     kwargs.pop('inspect_method', None)
     return inspect_with_retry(inspect_method='revoked', **kwargs)
 
