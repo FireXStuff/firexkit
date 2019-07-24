@@ -33,3 +33,8 @@ def get_active_tasks(**kwargs):
 def get_revoked_tasks(**kwargs):
     kwargs.pop('inspect_method', None)
     return inspect_with_retry(inspect_method='revoked', **kwargs)
+
+
+def get_active_queues(**kwargs):
+    kwargs.pop('inspect_method', None)
+    return inspect_with_retry(inspect_method='active_queues', **kwargs)
