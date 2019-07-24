@@ -15,9 +15,7 @@ def inspect_with_retry(inspect_retry_timeout=30, inspect_method=None, **inspect_
 
     if inspect_retry_timeout:
         timeout_time = time.time() + inspect_retry_timeout
-        tries = 0
         while time.time() < timeout_time:
-            tries += 1
             try:
                 return _inspect()
             except Exception as e:
