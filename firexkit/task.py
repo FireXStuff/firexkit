@@ -395,16 +395,27 @@ class FireXTask(Task):
         if self._task_logging_dirpath:
             return self._task_logging_dirpath
         else:
-            _task_logging_dirpath = os.path.join(self.file_logging_dirpath, self.request.hostname)
+            _task_logging_dirpath = self.get_task_logging_dirpath(self.file_logging_dirpath, self.request.hostname)
             if not os.path.exists(_task_logging_dirpath):
                 os.makedirs(_task_logging_dirpath, mode=0o777, exist_ok=True)
             self._task_logging_dirpath = _task_logging_dirpath
             return self._task_logging_dirpath
 
+    @staticmethod
+    def get_task_logging_dirpath(file_logging_dirpath, hostname):
+        return os.path.join(file_logging_dirpath, hostname)
+
     @property
     def task_logfile(self):
-        filename = '%s_%s.html' % (self.name, str(self.request.id))
-        return os.path.join(self.task_logging_dirpath, filename)
+        return self.get_task_logfile(self.task_logging_dirpath, self.name, self.request.id)
+
+    @classmethod
+    def get_task_logfile(cls, task_logging_dirpath, task_name, uuid):
+        return os.path.join(task_logging_dirpath, cls.get_task_logfilename(task_name, uuid))
+
+    @staticmethod
+    def get_task_logfilename(task_name, uuid):
+        return '{}_{}.html'.format(task_name, str(uuid))
 
     def add_task_logfile_handler(self):
         task_logfile = self.task_logfile
