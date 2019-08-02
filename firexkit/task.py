@@ -383,11 +383,15 @@ class FireXTask(Task):
         return [handler for handler in self.root_logger.handlers if isinstance(handler, WatchedFileHandler)][0]
 
     @property
+    def worker_log_file(self):
+        return self.root_logger_file_handler.baseFilename
+
+    @property
     def file_logging_dirpath(self):
         if self._file_logging_dir_path:
             return self._file_logging_dir_path
         else:
-            self._file_logging_dir_path = os.path.dirname(self.root_logger_file_handler.baseFilename)
+            self._file_logging_dir_path = os.path.dirname(self.worker_log_file)
             return self._file_logging_dir_path
 
     @property
