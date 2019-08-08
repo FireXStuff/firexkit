@@ -122,7 +122,7 @@ class ResultsReadyTests(unittest.TestCase):
             raise AssertionError()
         mock_result.state = bad_backend
         with self.assertRaises(AssertionError):
-            is_result_ready(mock_result, max_trials=5)
+            is_result_ready(mock_result, timeout=5)
 
         # Timeouts try again
         def bad_backend():
@@ -136,7 +136,7 @@ class ResultsReadyTests(unittest.TestCase):
             raise TimeoutError()
         mock_result.state = bad_backend
         with self.assertRaises(TimeoutError):
-            is_result_ready(mock_result, max_trials=3, retry_delay=0)
+            is_result_ready(mock_result, timeout=3, retry_delay=0)
 
 
 class WaitOnResultsTests(unittest.TestCase):

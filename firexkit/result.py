@@ -44,11 +44,12 @@ def populate_task_name(task_id, task, args, kwargs, **donotcare):
     current_app.backend.set(task_id, task.name)
 
 
-def is_result_ready(result: AsyncResult, max_trials=None, retry_delay=1):
+def is_result_ready(result: AsyncResult, timeout=None, retry_delay=0.1):
     """
     Protect against broker being temporary unreachable and throwing a TimeoutError
     """
-    trials = 0
+    timeout_time = time.time() + timeout if timeout else None
+
     while True:
         try:
             return result.ready()
@@ -56,14 +57,16 @@ def is_result_ready(result: AsyncResult, max_trials=None, retry_delay=1):
             # need to handle different timeout exceptions from different brokers
             if type(e).__name__ != "TimeoutError":
                 raise
-
-            trials += 1
-            logger.warning('Backend was not reachable and timed out; trial %d' % trials)
-            if max_trials and trials >= max_trials:
-                logger.error('Reached max_trials of %d...giving up!' % max_trials)
-                raise
-            else:
+            if not timeout:
+                logger.warning('Backend was not reachable and timed out...retrying')
                 time.sleep(retry_delay)
+            else:
+                if time.time() < timeout_time:
+                    logger.warning('Backend was not reachable and timed out...retrying for max %r seconds' % timeout)
+                    time.sleep(retry_delay)
+                else:
+                    logger.error('Reached max timeout of %r...giving up!' % timeout)
+                    raise
 
 
 def find_unsuccessful(result: AsyncResult, ignore_non_ready=False, depth=0)->{}:
