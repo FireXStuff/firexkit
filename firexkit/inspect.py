@@ -5,7 +5,11 @@ from celery.utils.log import get_task_logger
 logger = get_task_logger(__name__)
 
 
-def inspect_with_retry(inspect_retry_timeout=30, inspect_method=None, **inspect_opts):
+class InspectionReturnedNone(Exception):
+    pass
+
+
+def inspect_with_retry(inspect_retry_timeout=30, inspect_method=None, retry_if_None_returned=True, **inspect_opts):
     def _inspect():
         i = current_app.control.inspect(**inspect_opts)
         if inspect_method:
@@ -17,9 +21,13 @@ def inspect_with_retry(inspect_retry_timeout=30, inspect_method=None, **inspect_
         timeout_time = time.time() + inspect_retry_timeout
         while time.time() < timeout_time:
             try:
-                return _inspect()
+                inspection_result = _inspect()
+                if inspection_result is None and retry_if_None_returned:
+                    # Inspection might return None if broker didn't respond quickly
+                    raise InspectionReturnedNone()
+                return inspection_result
             except Exception as e:
-                logger.debug(e)
+                logger.exception(e)
                 logger.debug('Inspection failed. Retrying for up to %r seconds' % inspect_retry_timeout)
                 time.sleep(0.1)
     return _inspect()
