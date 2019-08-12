@@ -9,9 +9,9 @@ class InspectionReturnedNone(Exception):
     pass
 
 
-def inspect_with_retry(inspect_retry_timeout=30, inspect_method=None, retry_if_None_returned=True, **inspect_opts):
+def inspect_with_retry(inspect_retry_timeout=30, inspect_method=None, retry_if_None_returned=True, celery_app=current_app, **inspect_opts):
     def _inspect():
-        i = current_app.control.inspect(**inspect_opts)
+        i = celery_app.control.inspect(**inspect_opts)
         if inspect_method:
             return getattr(i, inspect_method)()
         else:
