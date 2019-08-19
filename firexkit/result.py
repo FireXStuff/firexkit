@@ -267,12 +267,26 @@ def get_results(result: AsyncResult, return_keys=(), return_keys_only=True, merg
     extracted_dict = _get_results(result,
                                   return_keys_only=return_keys_only,
                                   merge_children_results=merge_children_results)
-    if return_keys:
-        if isinstance(return_keys, str):
-            return_keys = tuple([return_keys])
-        return tuple([extracted_dict.get(key) for key in return_keys])
-    else:
-        return extracted_dict
+    return results2tuple(extracted_dict, return_keys) if return_keys else extracted_dict
+
+
+def results2tuple(results, return_keys):
+    if isinstance(return_keys, str):
+        return_keys = tuple([return_keys])
+    return tuple([results.get(key) for key in return_keys])
+
+
+def get_results_upto_parent(result: AsyncResult, parent_id: str = None, return_keys=(), **kwargs):
+    extracted_dict = {}
+    node = result
+    while node and node.id != parent_id:
+        node_results = get_results(node, **kwargs)
+        for k, v in node_results.items():
+            if k not in extracted_dict:
+                # Since we're walking up the chain, children gets precedence in case we get the same key
+                extracted_dict[k] = v
+        node = node.parent
+    return results2tuple(extracted_dict, return_keys) if return_keys else extracted_dict
 
 
 def disable_async_result(result: AsyncResult):
