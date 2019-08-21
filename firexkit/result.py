@@ -95,6 +95,30 @@ def find_unsuccessful(result: AsyncResult, ignore_non_ready=False, depth=0)->{}:
     return failures
 
 
+def find_unsuccessful_in_chain(result: AsyncResult)->{}:
+    failures = []
+    did_not_run = []
+    node = result
+    while node:
+        if is_result_ready(node):
+            # Did this task fail?
+            if node.state == FAILURE:
+                failures.append(node)
+        else:
+            # This task was not ready
+            did_not_run.append(node)
+        node = node.parent
+    # Should reverse the items since we're traversing the chain from RTL
+    failures.reverse()
+    did_not_run.reverse()
+    res = {}
+    if failures:
+        res['failed'] = failures
+    if did_not_run:
+        res['not_run'] = did_not_run
+    return res
+
+
 def _check_for_traceback_in_parents(result):
     parent = result.parent
     if parent:
