@@ -69,7 +69,7 @@ def is_result_ready(result: AsyncResult, timeout=None, retry_delay=0.1):
                     raise
 
 
-def find_unsuccessful(result: AsyncResult, ignore_non_ready=False, depth=0)->{}:
+def find_all_unsuccessful(result: AsyncResult, ignore_non_ready=False, depth=0)->{}:
     name = get_result_logging_name(result)
     state_str = '-'*depth*2 + '->%s: ' % name
 
@@ -91,7 +91,7 @@ def find_unsuccessful(result: AsyncResult, ignore_non_ready=False, depth=0)->{}:
     if children:
         depth += 1
         for child in children:
-            failures.update(find_unsuccessful(child, ignore_non_ready, depth))
+            failures.update(find_all_unsuccessful(child, ignore_non_ready, depth))
     return failures
 
 

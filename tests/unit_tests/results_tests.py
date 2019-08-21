@@ -6,7 +6,7 @@ from contextlib import contextmanager
 
 from firexkit.result import wait_on_async_results, get_task_name_from_result, get_result_logging_name, \
     is_result_ready, WaitLoopCallBack, WaitOnChainTimeoutError, ChainRevokedException, ChainInterruptedException, \
-    get_tasks_names_from_results, MultipleFailuresException
+    get_tasks_names_from_results, MultipleFailuresException, find_unsuccessful_in_chain
 from firexkit.revoke import RevokedRequests
 
 
@@ -194,6 +194,9 @@ class WaitOnResultsTests(unittest.TestCase):
         with self.prime_mocks(mock_results, 3):
             self.assertIsNone(wait_on_async_results(results=mock_results[2]))
 
+        unsuccessful = find_unsuccessful_in_chain(mock_results[-1])
+        self.assertDictEqual(unsuccessful, {})
+
     def test_self_parent_recursion(self):
         setup_revoke()
         test_app, mock_result = get_mocks()
@@ -228,6 +231,9 @@ class WaitOnResultsTests(unittest.TestCase):
         with self.assertRaises(ChainInterruptedException):
             wait_on_async_results(results=mock_results[2])
 
+        unsuccessful = find_unsuccessful_in_chain(mock_results[-1])
+        self.assertDictEqual(unsuccessful, {'not_run': [mock_results[2]], 'failed': [mock_results[1]]})
+
     def test_timeout(self):
         setup_revoke()
         test_app, mock_result = get_mocks()
@@ -258,6 +264,8 @@ class WaitOnResultsTests(unittest.TestCase):
         with self.assertRaises(ChainRevokedException):
             wait_on_async_results(results=mock_result)
 
+        unsuccessful = find_unsuccessful_in_chain(mock_result)
+        self.assertDictEqual(unsuccessful, {'not_run': [mock_result]})
 
     def test_wait_for_all_even_on_failure(self):
         setup_revoke()
@@ -292,3 +300,4 @@ class WaitOnResultsTests(unittest.TestCase):
             self.assertEqual(len(multi_failure_exception.failures), 2)
             self.assertTrue(isinstance(multi_failure_exception.failures[0], ChainInterruptedException))
             self.assertTrue(isinstance(multi_failure_exception.failures[1], ChainInterruptedException))
+
