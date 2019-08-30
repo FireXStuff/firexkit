@@ -132,8 +132,13 @@ def verify_chain_arguments(sig: Signature):
                 undefined_indirect[needed] = ref_args[needed]
 
     if missing:
-        txt = "\n".join([k + ": " + ",".join(v) for k, v in missing.items()])
-        raise InvalidChainArgsException('Chain missing the following parameters: \n%s' % txt, missing)
+        txt = ''
+        for k, v in missing.items():
+            for arg in v:
+                if txt:
+                    txt += '\n'
+                txt += ' ' + arg + '\t: required by "%s"' % k.split('.')[-1]
+        raise InvalidChainArgsException('Missing mandatory arguments: \n%s' % txt, missing)
     if undefined_indirect:
         txt = "\n".join([k + ": " + v for k, v in undefined_indirect.items()])
         raise InvalidChainArgsException('Chain indirectly references the following unavailable parameters: \n%s' %
