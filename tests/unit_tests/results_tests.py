@@ -14,7 +14,6 @@ class MockResult(AsyncResult):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._state = None
-        self._result = None
         self._kids = []
 
     @classmethod
@@ -28,21 +27,9 @@ class MockResult(AsyncResult):
             return self._state()
         return self._state
 
-
     @state.setter
     def state(self, state):
         self._state = state
-
-    @property
-    def result(self):
-        if callable(self._result):
-            return self._result()
-        return self._result
-
-
-    @result.setter
-    def result(self, result):
-        self._result = result
 
     @property
     def children(self):
@@ -241,24 +228,11 @@ class WaitOnResultsTests(unittest.TestCase):
         mock_results[0].state = SUCCESS
         mock_results[1].state = FAILURE
         mock_results[2].state = PENDING
-        with self.assertRaises(ChainInterruptedException) as context:
+        with self.assertRaises(ChainInterruptedException):
             wait_on_async_results(results=mock_results[2])
-        self.assertIsNone(context.exception.__cause__)
 
         unsuccessful = find_unsuccessful_in_chain(mock_results[-1])
         self.assertDictEqual(unsuccessful, {'not_run': [mock_results[2]], 'failed': [mock_results[1]]})
-
-    def test_Chain_interrupted_from_exc(self):
-        setup_revoke()
-        test_app, mock_results = get_mocks(["a0", "a1"])
-        MockResult.set_heritage(mock_results[0], mock_results[1])
-        mock_results[0].state = SUCCESS
-        mock_results[1].state = FAILURE
-        mock_results[1].result = OSError()
-        with self.assertRaises(ChainInterruptedException) as context:
-            wait_on_async_results(results=mock_results[1])
-        self.assertTrue(isinstance(context.exception.__cause__, OSError))
-
 
     def test_timeout(self):
         setup_revoke()
