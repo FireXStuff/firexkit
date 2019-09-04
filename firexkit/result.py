@@ -181,7 +181,8 @@ def wait_on_async_results(results, max_wait=None, callbacks: [WaitLoopCallBack]=
             if result.state == REVOKED:
                 raise ChainRevokedException(name)
             if result.state == FAILURE:
-                raise ChainInterruptedException(name)
+                cause = result.result if isinstance(result.result, Exception) else None
+                raise ChainInterruptedException(name) from cause
 
         except (ChainRevokedException, ChainInterruptedException) as e:
             failures.append(e)
@@ -233,21 +234,32 @@ class ChainRevokedException(ChainException):
     MESSAGE = "The chain has been interrupted by the revocation of microservice %s"
 
     def __init__(self, microservice_name):
-        super(ChainRevokedException, self).__init__(self.MESSAGE % microservice_name)
+        self.microservice_name = microservice_name
+        super(ChainRevokedException, self).__init__(microservice_name)
+
+    def __str__(self):
+        return self.MESSAGE % self.microservice_name
 
 
 class ChainInterruptedException(ChainException):
     MESSAGE = "The chain has been interrupted by a failure in microservice %s"
 
     def __init__(self, microservice_name):
-        super(ChainInterruptedException, self).__init__(self.MESSAGE % microservice_name)
+        self.microservice_name = microservice_name
+        super(ChainInterruptedException, self).__init__(microservice_name)
+
+    def __str__(self):
+        return self.MESSAGE % self.microservice_name
 
 
 class MultipleFailuresException(ChainInterruptedException):
     MESSAGE = "The chain has been interrupted by multiple failing microservices"
 
     def __init__(self):
-        super(ChainInterruptedException, self).__init__(self.MESSAGE)
+        super(ChainInterruptedException, self).__init__()
+
+    def __str__(self):
+        return self.MESSAGE
 
 
 def get_task_results(results: dict) -> dict:
