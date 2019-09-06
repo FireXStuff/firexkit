@@ -57,8 +57,8 @@ class FireXTask(Task):
     def __init__(self):
         self.undecorated = undecorate(self)
         self.sig = inspect.signature(self.run)
-        self._decorated_return_keys = getattr(self.undecorated, "_decorated_return_keys", tuple())
         self._task_return_keys = self.get_task_return_keys()
+        self._decorated_return_keys = getattr(self.undecorated, "_decorated_return_keys", tuple())
         if self._decorated_return_keys and self._task_return_keys:
             raise ReturnsCodingException("You can't specify both a @returns decorator and a returns in the app task")
         self.return_keys = self._decorated_return_keys or self._task_return_keys
@@ -445,14 +445,19 @@ class FireXTask(Task):
                 _logger.removeHandler(_handler)
 
 
-def undecorate(task):
-    """:return: the original function that was used to create a microservice"""
-    undecorated_func = task.run
+def undecorate_func(func):
+    undecorated_func = func
     while True:
         try:
             undecorated_func = getattr(undecorated_func, '__wrapped__')
         except AttributeError:
             break
+    return undecorated_func
+
+
+def undecorate(task):
+    """:return: the original function that was used to create a microservice"""
+    undecorated_func = undecorate_func(task.run)
     if not inspect.ismethod(task.run) or inspect.ismethod(undecorated_func):
         return undecorated_func
     else:
