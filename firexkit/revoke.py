@@ -61,6 +61,7 @@ class RevokedRequests(object):
                 timedelta(seconds=timer_expiry_secs)
             time_lapsed = datetime.utcnow()-self.last_updated
             if time_lapsed > timer_expiry:
+                logger.debug('%s since last update of RevokedRequests list; updating now' % time_lapsed)
                 self.update()
                 return self._task_in_revoked_list(result_id)
             else:
