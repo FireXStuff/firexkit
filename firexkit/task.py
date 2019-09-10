@@ -425,14 +425,12 @@ class FireXTask(Task):
         task_logfile = self.task_logfile
         self._temp_loghandlers = {}
         fh_root = logging.handlers.WatchedFileHandler(task_logfile, mode='a+')
-        fh_root.setLevel(logging.DEBUG)
         fh_root.setFormatter(self.root_logger_file_handler.formatter)
         self.root_logger.addHandler(fh_root)
         self._temp_loghandlers[self.root_logger] = fh_root
 
         task_logger = get_logger('celery.task')
         fh_task = logging.FileHandler(task_logfile, mode='a+')
-        fh_task.setLevel(logging.DEBUG)
         original_file_handler = [handler for handler in task_logger.handlers if
                                  isinstance(handler, WatchedFileHandler)][0]
         fh_task.setFormatter(original_file_handler.formatter)
