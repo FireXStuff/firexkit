@@ -273,6 +273,8 @@ def get_task_results(results: dict) -> dict:
 
 def _get_results(result: AsyncResult, return_keys_only=True, merge_children_results=False) -> dict:
     results = {}
+    if not result:
+        return results
     try:
         if result.successful():
             _results = result.result
