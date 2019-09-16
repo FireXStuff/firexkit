@@ -123,7 +123,8 @@ def _check_for_traceback_in_parents(result):
     parent = result.parent
     if parent:
         if parent.failed():
-            raise ChainInterruptedException(get_result_logging_name(parent))
+            cause = parent.result if isinstance(parent.result, Exception) else None
+            raise ChainInterruptedException(get_result_logging_name(parent), cause)
         elif parent.state == REVOKED:
             raise ChainRevokedException(get_result_logging_name(parent))
         else:
@@ -182,7 +183,7 @@ def wait_on_async_results(results, max_wait=None, callbacks: [WaitLoopCallBack]=
                 raise ChainRevokedException(name)
             if result.state == FAILURE:
                 cause = result.result if isinstance(result.result, Exception) else None
-                raise ChainInterruptedException(name) from cause
+                raise ChainInterruptedException(name, cause)
 
         except (ChainRevokedException, ChainInterruptedException) as e:
             failures.append(e)
@@ -244,9 +245,10 @@ class ChainRevokedException(ChainException):
 class ChainInterruptedException(ChainException):
     MESSAGE = "The chain has been interrupted by a failure in microservice %s"
 
-    def __init__(self, microservice_name):
+    def __init__(self, microservice_name, cause=None):
         self.microservice_name = microservice_name
-        super(ChainInterruptedException, self).__init__(microservice_name)
+        self.__cause__ = cause
+        super(ChainInterruptedException, self).__init__(microservice_name, cause)
 
     def __str__(self):
         return self.MESSAGE % self.microservice_name
