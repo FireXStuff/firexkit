@@ -27,7 +27,7 @@ def inspect_with_retry(inspect_retry_timeout=30, inspect_method=None, retry_if_N
                     raise InspectionReturnedNone()
                 return inspection_result
             except Exception as e:
-                logger.exception(e)
+                logger.debug(e, exc_info=True)
                 logger.debug('Inspection failed. Retrying for up to %r seconds' % inspect_retry_timeout)
                 time.sleep(0.1)
     return _inspect()
