@@ -84,6 +84,10 @@ class FireXTask(Task):
         finally:
             del self.context
 
+    @property
+    def from_plugin(self):
+        return getattr(self, '_from_plugin', False)
+
     def initialize_context(self):
         self.context.enqueued_children = {}
         self.context.bog = None
