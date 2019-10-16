@@ -75,6 +75,8 @@ class FireXTask(Task):
         self._temp_loghandlers = None
         self.code_filepath = self.get_module_file_location()
 
+        self._from_plugin = False
+
     @contextmanager
     def task_context(self):
         try:
@@ -86,7 +88,11 @@ class FireXTask(Task):
 
     @property
     def from_plugin(self):
-        return getattr(self, '_from_plugin', False)
+        return self._from_plugin
+
+    @from_plugin.setter
+    def from_plugin(self, value):
+        self._from_plugin = value
 
     def initialize_context(self):
         self.context.enqueued_children = {}
