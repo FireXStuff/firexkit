@@ -235,7 +235,17 @@ class FireXTask(Task):
         self.post_task_run(result)
 
         return self.bag
-    
+
+    def retry(self, *args, **kwargs):
+        # Adds some logging to the original task retry
+
+        if not self.request.called_directly:
+            if self.request.retries == self.max_retries:
+                logger.error('Failed all %d retry attempts' % self.max_retries)
+            else:
+                logger.info('Failed and Retrying %d/%d' % (self.request.retries+1, self.max_retries))
+        super(FireXTask, self).retry(*args, **kwargs)
+
     @property
     def bag(self) -> dict:
         return self.context.bog.get_bag()
