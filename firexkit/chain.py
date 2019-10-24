@@ -163,17 +163,20 @@ def _enqueue(self, block=False, raise_exception_on_failure=True, caller_task=Non
 
 
 def set_attr(sig: Signature, **options):
+    """Set arbitrary executions options in every task in the :attr:`sig`"""
     try:
         [task.set(**options) for task in sig.tasks]
     except AttributeError:
         sig.set(**options)
 
 
-def set_priority(sig: Signature, priority):
+def set_priority(sig: Signature, priority: int):
+    """Set the :attr:`priority` execution option in every task in :attr:`sig`"""
     set_attr(sig, priority=priority)
 
 
 def set_queue(sig: Signature, queue):
+    """Set the :attr:`queue` execution option in every task in :attr:`sig`"""
     set_attr(sig, queue=queue)
 
 

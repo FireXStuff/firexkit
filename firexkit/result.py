@@ -2,6 +2,8 @@ import time
 from collections import namedtuple
 
 import traceback
+from typing import Union
+
 from celery.result import AsyncResult
 from celery.signals import task_prerun
 from celery.states import FAILURE, REVOKED
@@ -303,14 +305,34 @@ def _get_results(result: AsyncResult, return_keys_only=True, merge_children_resu
     return results
 
 
-def get_results(result: AsyncResult, return_keys=(), return_keys_only=True, merge_children_results=False):
+def get_results(result: AsyncResult,
+                return_keys: Union[str, tuple] = (),
+                return_keys_only: bool = True,
+                merge_children_results: bool = False) -> Union[tuple, dict]:
+    """
+    Extract and return task results
+
+    Args:
+        result: The AsyncResult to extract actual returned results from
+        return_keys: A single return key string, or a tuple of keys to extract from the AsyncResult.
+            The default value of :const:`None` will return a dictionary of key/value pairs for the returned results.
+        return_keys_only: If :const:`True` (default), only return results for keys specified by the task's
+            `@returns` decorator or :attr:`returns` attribute. If :const:`False`, returns will include key/value pairs
+            from the `bag of goodies`.
+        merge_children_results: If :const:`True`, traverse children of `result`, and merge results produced by them.
+            The default value of :const:`False` will not collect results from the children.
+
+    Returns:
+        If `return_keys` parameter was specified, returns a tuple of the results in the same order of the return_keys.
+        If `return_keys` parameter wasn't specified, return a dictionary of the key/value pairs of the returned results.
+    """
     extracted_dict = _get_results(result,
                                   return_keys_only=return_keys_only,
                                   merge_children_results=merge_children_results)
     return results2tuple(extracted_dict, return_keys) if return_keys else extracted_dict
 
 
-def results2tuple(results, return_keys):
+def results2tuple(results: dict, return_keys: Union[str, tuple]) -> tuple:
     if isinstance(return_keys, str):
         return_keys = tuple([return_keys])
     return tuple([results.get(key) for key in return_keys])
