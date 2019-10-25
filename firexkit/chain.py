@@ -5,6 +5,7 @@ from typing import Union
 
 from celery.canvas import chain, Signature
 from celery.local import PromiseProxy
+from celery.result import AsyncResult
 from celery.utils.log import get_task_logger
 
 from firexkit.result import wait_on_async_results_and_maybe_raise
@@ -37,7 +38,7 @@ def returns(*args):
         # Return a dictionary mapping the tuple returned by the original function
         # to the keys specified by the arguments to the @returns decorator
         @wraps(func)
-        def returns_wrapper(*orig_args, **orig_kwargs)->dict:
+        def returns_wrapper(*orig_args, **orig_kwargs) -> dict:
             result = func(*orig_args, **orig_kwargs)
             return FireXTask.convert_returns_to_dict(undecorated._decorated_return_keys, result)
 
@@ -50,7 +51,7 @@ class InjectArgs(object):
     def __init__(self, **kwargs):
         self.injectArgs = kwargs
 
-    def __or__(self, other)->Union[chain, Signature]:
+    def __or__(self, other) -> Union[chain, Signature]:
         if isinstance(other, InjectArgs):
             self.injectArgs.update(other.injectArgs)
         else:
@@ -58,7 +59,7 @@ class InjectArgs(object):
             _inject_args_into_signature(other, **self.injectArgs)
         return other
 
-    def __ior__(self, other: Union[chain, Signature])->Union[chain, Signature]:
+    def __ior__(self, other: Union[chain, Signature]) -> Union[chain, Signature]:
         return self | other
 
 
@@ -147,19 +148,32 @@ def verify_chain_arguments(sig: Signature):
 
 
 class InvalidChainArgsException(Exception):
-    def __init__(self, msg, wrong_args: dict=None):
+    def __init__(self, msg, wrong_args: dict = None):
         super(InvalidChainArgsException, self).__init__(msg)
         self.wrong_args = wrong_args if wrong_args else {}
 
 
-def _enqueue(self, block=False, raise_exception_on_failure=True, caller_task=None):
+def _enqueue(self: Signature,
+             block: bool = False,
+             raise_exception_on_failure: bool = True,
+             caller_task: Signature = None,
+             queue: str = None,
+             priority: int = None) -> AsyncResult:
+
     verify_chain_arguments(self)
-    result = self.delay()
+
+    if queue:
+        self.set_queue(queue)
+
+    if priority:
+        self.set_priority(priority)
+
+    result_promise = self.delay()
     if block:
-        wait_on_async_results_and_maybe_raise(results=result,
-                                             raise_exception_on_failure=raise_exception_on_failure,
-                                             caller_task=caller_task)
-    return result
+        wait_on_async_results_and_maybe_raise(results=result_promise,
+                                              raise_exception_on_failure=raise_exception_on_failure,
+                                              caller_task=caller_task)
+    return result_promise
 
 
 def set_attr(sig: Signature, **options):

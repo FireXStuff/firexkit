@@ -5,6 +5,8 @@ import os
 from collections import OrderedDict
 import inspect
 import traceback
+
+from celery.canvas import Signature
 from celery.result import AsyncResult
 from contextlib import contextmanager
 from enum import Enum
@@ -353,7 +355,7 @@ class FireXTask(Task):
         child_results = self.pending_enqueued_children if pending_only else self.enqueued_children
         self.wait_for_specific_children(child_results=child_results, **kwargs)
 
-    def wait_for_specific_children(self, child_results, **kwargs):
+    def wait_for_specific_children(self, child_results, **kwargs: dict):
         """Wait for the explicitly provided child_results to run and complete"""
         if child_results:
             logger.debug('Waiting for enqueued children: %r' % get_tasks_names_from_results(child_results))
@@ -362,8 +364,8 @@ class FireXTask(Task):
             finally:
                 [self._update_child_state(child_result, self._UNBLOCKED) for child_result in child_results]
 
-    def enqueue_child(self, chain, add_to_enqueued_children=True, block=False,
-                      **kwargs):
+    def enqueue_child(self, chain: Signature, add_to_enqueued_children: bool = True, block: bool = False,
+                      **kwargs: dict) -> AsyncResult:
         """Schedule a child task to run"""
         from firexkit.chain import InjectArgs, verify_chain_arguments
 
