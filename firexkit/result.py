@@ -6,7 +6,7 @@ from typing import Union
 
 from celery.result import AsyncResult
 from celery.signals import task_prerun
-from celery.states import FAILURE, REVOKED
+from celery.states import FAILURE, REVOKED, SUCCESS
 from celery.utils.log import get_task_logger
 from firexkit.revoke import RevokedRequests
 
@@ -361,3 +361,11 @@ def disable_async_result(result: AsyncResult):
 
     for child in children:
         disable_async_result(child)
+
+
+def is_result_success(result):
+    return result.state == SUCCESS
+
+
+def is_result_failure(result):
+    return result.state == FAILURE
