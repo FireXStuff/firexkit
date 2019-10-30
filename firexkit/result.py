@@ -361,11 +361,3 @@ def disable_async_result(result: AsyncResult):
 
     for child in children:
         disable_async_result(child)
-
-
-def is_result_success(result):
-    return result.state == SUCCESS
-
-
-def is_result_failure(result):
-    return result.state == FAILURE
