@@ -242,6 +242,7 @@ class ChainException(Exception):
 
 
 class ChainRevokedException(ChainException):
+    MESSAGE = "The chain has been interrupted by the revocation of microservice "
 
     def __init__(self, task_id=None, task_name=None):
         self.task_id = task_id
@@ -249,7 +250,7 @@ class ChainRevokedException(ChainException):
         super(ChainRevokedException, self).__init__(task_id, task_name)
 
     def __str__(self):
-        message = "The chain has been interrupted by the revocation of microservice "
+        message = self.MESSAGE
         if self.task_name:
             message += self.task_name
         if self.task_id:
@@ -258,6 +259,7 @@ class ChainRevokedException(ChainException):
 
 
 class ChainInterruptedException(ChainException):
+    MESSAGE = "The chain has been interrupted by a failure in microservice "
 
     def __init__(self, task_id=None, task_name=None, cause=None):
         self.task_id = task_id
@@ -266,7 +268,7 @@ class ChainInterruptedException(ChainException):
         super(ChainInterruptedException, self).__init__(task_id, task_name, cause)
 
     def __str__(self):
-        message = "The chain has been interrupted by a failure in microservice "
+        message = self.MESSAGE
         if self.task_name:
             message += self.task_name
         if self.task_id:
