@@ -126,9 +126,12 @@ def _check_for_traceback_in_parents(result):
     if parent:
         if parent.failed():
             cause = parent.result if isinstance(parent.result, Exception) else None
-            raise ChainInterruptedException(get_result_logging_name(parent), cause)
+            raise ChainInterruptedException(task_id=str(parent),
+                                            task_name=get_task_name_from_result(parent),
+                                            cause=cause)
         elif parent.state == REVOKED:
-            raise ChainRevokedException(get_result_logging_name(parent))
+            raise ChainRevokedException(task_id=str(parent),
+                                        task_name=get_task_name_from_result(parent))
         else:
             return _check_for_traceback_in_parents(parent)
 
@@ -163,17 +166,19 @@ def wait_on_async_results(results, max_wait=None, callbacks: [WaitLoopCallBack]=
 
     failures = []
     for result in results:
-        name = get_result_logging_name(result)
-        logger.debug('-> Waiting for %s to become ready' % name)
+        logging_name = get_result_logging_name(result)
+        logger.debug('-> Waiting for %s to become ready' % logging_name)
         try:
             while not is_result_ready(result):
                 if RevokedRequests.instance().is_revoked(result):
-                    raise ChainRevokedException(name)
+                    raise ChainRevokedException(task_id=str(result),
+                                                task_name=get_task_name_from_result(result))
 
                 _check_for_traceback_in_parents(result)
 
                 if max_trials and trials >= max_trials:
-                    raise WaitOnChainTimeoutError('Result ID %s was not ready in %d seconds' % (name, max_wait))
+                    logging_name = get_result_logging_name(result)
+                    raise WaitOnChainTimeoutError('Result ID %s was not ready in %d seconds' % (logging_name, max_wait))
                 time.sleep(sleep_between_iterations)
                 trials += 1
 
@@ -182,10 +187,13 @@ def wait_on_async_results(results, max_wait=None, callbacks: [WaitLoopCallBack]=
                     if trials % (callback.frequency / sleep_between_iterations) == 0:
                         callback.func(**callback.kwargs)
             if result.state == REVOKED:
-                raise ChainRevokedException(name)
+                raise ChainRevokedException(task_id=str(result),
+                                            task_name=get_task_name_from_result(result))
             if result.state == FAILURE:
                 cause = result.result if isinstance(result.result, Exception) else None
-                raise ChainInterruptedException(name, cause)
+                raise ChainInterruptedException(task_id=str(result),
+                                                task_name=get_task_name_from_result(result),
+                                                cause=cause)
 
         except (ChainRevokedException, ChainInterruptedException) as e:
             failures.append(e)
@@ -234,26 +242,36 @@ class ChainException(Exception):
 
 
 class ChainRevokedException(ChainException):
-    MESSAGE = "The chain has been interrupted by the revocation of microservice %s"
 
-    def __init__(self, microservice_name):
-        self.microservice_name = microservice_name
-        super(ChainRevokedException, self).__init__(microservice_name)
+    def __init__(self, task_id=None, task_name=None):
+        self.task_id = task_id
+        self.task_name = task_name
+        super(ChainRevokedException, self).__init__(task_id, task_name)
 
     def __str__(self):
-        return self.MESSAGE % self.microservice_name
+        message = "The chain has been interrupted by the revocation of microservice "
+        if self.task_name:
+            message += self.task_name
+        if self.task_id:
+            message += '[%s]' % self.task_id
+        return message
 
 
 class ChainInterruptedException(ChainException):
-    MESSAGE = "The chain has been interrupted by a failure in microservice %s"
 
-    def __init__(self, microservice_name, cause=None):
-        self.microservice_name = microservice_name
+    def __init__(self, task_id=None, task_name=None, cause=None):
+        self.task_id = task_id
+        self.task_name = task_name
         self.__cause__ = cause
-        super(ChainInterruptedException, self).__init__(microservice_name, cause)
+        super(ChainInterruptedException, self).__init__(task_id, task_name, cause)
 
     def __str__(self):
-        return self.MESSAGE % self.microservice_name
+        message = "The chain has been interrupted by a failure in microservice "
+        if self.task_name:
+            message += self.task_name
+        if self.task_id:
+            message += '[%s]' % self.task_id
+        return message
 
 
 class MultipleFailuresException(ChainInterruptedException):

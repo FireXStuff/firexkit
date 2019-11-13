@@ -21,7 +21,8 @@ from firexkit.revoke import revoke_recursively
 from firexkit.bag_of_goodies import BagOfGoodies
 from firexkit.argument_conversion import ConverterRegister
 from firexkit.result import get_tasks_names_from_results, wait_for_any_results, \
-    RETURN_KEYS_KEY, wait_on_async_results_and_maybe_raise, get_result_logging_name
+    RETURN_KEYS_KEY, wait_on_async_results_and_maybe_raise, get_result_logging_name, ChainInterruptedException, \
+    ChainRevokedException
 
 logger = get_task_logger(__name__)
 
@@ -194,9 +195,14 @@ class FireXTask(Task):
                     logger.debug("The following exception was thrown (and caught) when wait_for_children was "
                                  "implicitly called by this task's base class:\n" + str(e))
             return result
+        except (ChainInterruptedException, ChainRevokedException) as e:
+            exception_cause_uuid = e.task_id
+            if exception_cause_uuid:
+                self.send_event('task-exception-cause', exception_cause_uuid=exception_cause_uuid)
+            logger.exception(e)
+            raise
         except Exception as e:
-            logger.debug(traceback.format_exc())
-            logger.error(e)
+            logger.exception(e)
             raise
         finally:
             try:
