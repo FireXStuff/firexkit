@@ -253,7 +253,7 @@ class FireXTask(Task):
             if self.request.retries == self.max_retries:
                 logger.error('Failed all %d retry attempts' % self.max_retries)
             else:
-                logger.info('Failed and Retrying %d/%d' % (self.request.retries+1, self.max_retries))
+                logger.warning('Failed and retrying %d/%d' % (self.request.retries+1, self.max_retries))
         super(FireXTask, self).retry(*args, **kwargs)
 
     @property
