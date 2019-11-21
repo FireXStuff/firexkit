@@ -196,9 +196,13 @@ class FireXTask(Task):
                                  "implicitly called by this task's base class:\n" + str(e))
             return result
         except (ChainInterruptedException, ChainRevokedException) as e:
-            exception_cause_uuid = e.task_id
-            if exception_cause_uuid:
-                self.send_event('task-exception-cause', exception_cause_uuid=exception_cause_uuid)
+            try:
+                exception_cause_uuid = e.task_id
+            except AttributeError:
+                pass
+            else:
+                if exception_cause_uuid:
+                    self.send_event('task-exception-cause', exception_cause_uuid=exception_cause_uuid)
             logger.debug(e, exc_info=True)
             logger.error(e)
             raise
