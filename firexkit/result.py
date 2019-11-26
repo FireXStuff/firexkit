@@ -153,8 +153,10 @@ def send_block_task_states_to_caller_task(func):
 
 
 @send_block_task_states_to_caller_task
-def wait_on_async_results(results, max_wait=None, callbacks: [WaitLoopCallBack]=tuple(),
-                          sleep_between_iterations=0.1):
+def wait_on_async_results(results,
+                          max_wait=None,
+                          callbacks: [WaitLoopCallBack]=tuple(),
+                          sleep_between_iterations=0.05):
     if not results:
         return
 
@@ -179,13 +181,16 @@ def wait_on_async_results(results, max_wait=None, callbacks: [WaitLoopCallBack]=
                 if max_trials and trials >= max_trials:
                     logging_name = get_result_logging_name(result)
                     raise WaitOnChainTimeoutError('Result ID %s was not ready in %d seconds' % (logging_name, max_wait))
+
                 time.sleep(sleep_between_iterations)
+
                 trials += 1
 
                 # callbacks
                 for callback in callbacks:
                     if trials % (callback.frequency / sleep_between_iterations) == 0:
                         callback.func(**callback.kwargs)
+
             if result.state == REVOKED:
                 raise ChainRevokedException(task_id=str(result),
                                             task_name=get_task_name_from_result(result))
