@@ -6,7 +6,7 @@ from typing import Union
 
 from celery.result import AsyncResult
 from celery.signals import task_prerun
-from celery.states import FAILURE, REVOKED, SUCCESS
+from celery.states import FAILURE, REVOKED
 from celery.utils.log import get_task_logger
 from firexkit.revoke import RevokedRequests
 
@@ -354,13 +354,24 @@ def get_results(result: AsyncResult,
     extracted_dict = _get_results(result,
                                   return_keys_only=return_keys_only,
                                   merge_children_results=merge_children_results)
-    return results2tuple(extracted_dict, return_keys) if return_keys else extracted_dict
+    from firexkit.task import FireXTask
+    if not return_keys or return_keys == FireXTask.DYNAMIC_RETURN or return_keys == (FireXTask.DYNAMIC_RETURN, ):
+        return extracted_dict
+    else:
+        return results2tuple(extracted_dict, return_keys)
 
 
 def results2tuple(results: dict, return_keys: Union[str, tuple]) -> tuple:
+    from firexkit.task import FireXTask
     if isinstance(return_keys, str):
         return_keys = tuple([return_keys])
-    return tuple([results.get(key) for key in return_keys])
+    results_to_return = []
+    for key in return_keys:
+        if key == FireXTask.DYNAMIC_RETURN:
+            results_to_return.append(results)
+        else:
+            results_to_return.append(results.get(key))
+    return tuple(results_to_return)
 
 
 def get_results_upto_parent(result: AsyncResult, parent_id: str = None, return_keys=(), **kwargs):

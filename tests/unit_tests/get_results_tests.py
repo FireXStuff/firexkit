@@ -1,5 +1,6 @@
 import unittest
 from firexkit.result import get_results, RETURN_KEYS_KEY
+from firexkit.task import FireXTask
 
 
 class AsyncResultMock:
@@ -184,3 +185,28 @@ class GetResultsTests(unittest.TestCase):
             c2 = AsyncResultMock(result=c2_result)
             r = AsyncResultMock(result=result, children=[c1, c2])
             self.assertDictEqual(get_results(r, merge_children_results=True), {'d': 4})
+
+    def test_extract_with_dynamic_return(self):
+        with self.subTest('return keys is the string FireXTask.DYNAMIC_RETURN'):
+            result = {'a': 1, 'b': 2, 'c': 3, RETURN_KEYS_KEY: ('a', 'b')}
+            r = AsyncResultMock(result=result)
+            self.assertDictEqual(get_results(r, return_keys=FireXTask.DYNAMIC_RETURN), {'a': 1, 'b': 2})
+
+        with self.subTest('return keys is the tuple (FireXTask.DYNAMIC_RETURN, )'):
+            result = {'a': 1, 'b': 2, 'c': 3, RETURN_KEYS_KEY: ('a', 'b')}
+            r = AsyncResultMock(result=result)
+            self.assertDictEqual(get_results(r, return_keys=(FireXTask.DYNAMIC_RETURN, )), {'a': 1, 'b': 2})
+
+        with self.subTest('return keys is the tuple (FireXTask.DYNAMIC_RETURN, "a")'):
+            result = {'a': 1, 'b': 2, 'c': 3, RETURN_KEYS_KEY: ('a', 'b')}
+            r = AsyncResultMock(result=result)
+            v1, v2 = get_results(r, return_keys=(FireXTask.DYNAMIC_RETURN, "a"))
+            self.assertDictEqual(v1, {'a': 1, 'b': 2})
+            self.assertEqual(v2, 1)
+
+        with self.subTest('return keys is the tuple ("a", FireXTask.DYNAMIC_RETURN)'):
+            result = {'a': 1, 'b': 2, 'c': 3, RETURN_KEYS_KEY: ('a', 'b')}
+            r = AsyncResultMock(result=result)
+            v1, v2 = get_results(r, return_keys=("a", FireXTask.DYNAMIC_RETURN))
+            self.assertEqual(v1, 1)
+            self.assertDictEqual(v2, {'a': 1, 'b': 2})
