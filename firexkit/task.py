@@ -377,8 +377,11 @@ class FireXTask(Task):
                 [self._update_child_state(child_result, self._UNBLOCKED) for child_result in child_results]
 
     def enqueue_child(self, chain: Signature, add_to_enqueued_children: bool = True, block: bool = False,
-                      apply_async_options: dict = {}, **kwargs: dict) -> AsyncResult:
+                      apply_async_options=None, **kwargs: dict) -> AsyncResult:
         """Schedule a child task to run"""
+        if apply_async_options is None:
+            apply_async_options = dict()
+
         from firexkit.chain import InjectArgs, verify_chain_arguments
 
         if isinstance(chain, InjectArgs):
