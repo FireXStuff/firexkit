@@ -479,6 +479,10 @@ class FireXTask(Task):
             for _logger, _handler in self._temp_loghandlers.items():
                 _logger.removeHandler(_handler)
 
+    def send_event(self, *args, **kwargs):
+        if not self.request.called_directly:
+            super(FireXTask, self).send_event(*args, **kwargs)
+
 
 def undecorate_func(func):
     undecorated_func = func
