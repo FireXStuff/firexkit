@@ -158,7 +158,8 @@ def _enqueue(self: Signature,
              raise_exception_on_failure: bool = True,
              caller_task: Signature = None,
              queue: str = None,
-             priority: int = None) -> AsyncResult:
+             priority: int = None,
+             soft_time_limit: int = None) -> AsyncResult:
 
     verify_chain_arguments(self)
 
@@ -167,6 +168,9 @@ def _enqueue(self: Signature,
 
     if priority:
         self.set_priority(priority)
+
+    if soft_time_limit:
+        self.soft_time_limit(soft_time_limit)
 
     result_promise = self.delay()
     if block:
