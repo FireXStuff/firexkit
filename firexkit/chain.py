@@ -194,6 +194,11 @@ def set_queue(sig: Signature, queue):
     set_attr(sig, queue=queue)
 
 
+def set_soft_time_limit(sig: Signature, soft_time_limit):
+    """Set the :attr:`soft_time_limit` execution option in every task in :attr:`sig`"""
+    set_attr(sig, soft_time_limit=soft_time_limit)
+
+
 def set_label(sig: Signature, label):
     sig.set(label=label)
 
@@ -210,6 +215,7 @@ def get_label(sig: Signature):
 
 Signature.set_priority = set_priority
 Signature.set_queue = set_queue
+Signature.set_soft_time_limit = set_soft_time_limit
 Signature.set_label = set_label
 Signature.get_label = get_label
 Signature.enqueue = _enqueue
