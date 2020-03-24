@@ -180,7 +180,7 @@ def _enqueue(self: Signature,
     return result_promise
 
 
-def set_attr(sig: Signature, **options):
+def set_execution_options(sig: Signature, **options):
     """Set arbitrary executions options in every task in the :attr:`sig`"""
     try:
         [task.set(**options) for task in sig.tasks]
@@ -190,17 +190,17 @@ def set_attr(sig: Signature, **options):
 
 def set_priority(sig: Signature, priority: int):
     """Set the :attr:`priority` execution option in every task in :attr:`sig`"""
-    set_attr(sig, priority=priority)
+    set_execution_options(sig, priority=priority)
 
 
 def set_queue(sig: Signature, queue):
     """Set the :attr:`queue` execution option in every task in :attr:`sig`"""
-    set_attr(sig, queue=queue)
+    set_execution_options(sig, queue=queue)
 
 
 def set_soft_time_limit(sig: Signature, soft_time_limit):
     """Set the :attr:`soft_time_limit` execution option in every task in :attr:`sig`"""
-    set_attr(sig, soft_time_limit=soft_time_limit)
+    set_execution_options(sig, soft_time_limit=soft_time_limit)
 
 
 def set_label(sig: Signature, label):
@@ -217,6 +217,7 @@ def get_label(sig: Signature):
             return sig.name
 
 
+Signature.set_execution_options = set_execution_options
 Signature.set_priority = set_priority
 Signature.set_queue = set_queue
 Signature.set_soft_time_limit = set_soft_time_limit

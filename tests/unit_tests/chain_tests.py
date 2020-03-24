@@ -651,3 +651,70 @@ class LabelTests(unittest.TestCase):
             label = 'something'
             c.set_label(label)
             self.assertEqual(c.get_label(), label)
+
+
+class SetExecutionOptionsTests(unittest.TestCase):
+
+    def test(self):
+        test_app = Celery()
+
+        @test_app.task(base=FireXTask)
+        def task1():
+            pass  # pragma: no cover
+
+        @test_app.task(base=FireXTask)
+        def task2():
+            pass  # pragma: no cover
+
+        with self.subTest('Testing set_execution_options'):
+            options = {'k1': 1, 'k2': 'v2'}
+
+            t = task1.s()
+            t.set_execution_options(**options)
+            self.assertDictEqual(t['options'], options)
+
+            c1 = task1.s() | task2.s()
+            c2 = task2.s() | task1.s()
+            for c in [c1, c2]:
+                c.set_execution_options(**options)
+                for task in c.tasks:
+                    self.assertDictEqual(task['options'], options)
+
+        with self.subTest('Testing set_priority'):
+            priority = 3
+            t = task1.s()
+            t.set_priority(priority)
+            self.assertEqual(t['options']['priority'], priority)
+
+            c1 = task1.s() | task2.s()
+            c2 = task2.s() | task1.s()
+            for c in [c1, c2]:
+                c.set_priority(priority)
+                for task in c.tasks:
+                    self.assertEqual(task['options']['priority'], priority)
+
+        with self.subTest('Testing set_queue'):
+            queue = 'some_queue'
+            t = task1.s()
+            t.set_queue(queue)
+            self.assertEqual(t['options']['queue'], queue)
+
+            c1 = task1.s() | task2.s()
+            c2 = task2.s() | task1.s()
+            for c in [c1, c2]:
+                c.set_queue(queue)
+                for task in c.tasks:
+                    self.assertEqual(task['options']['queue'], queue)
+
+        with self.subTest('Testing set_soft_time_limit'):
+            soft_time_limit = 60
+            t = task1.s()
+            t.set_soft_time_limit(soft_time_limit)
+            self.assertEqual(t['options']['soft_time_limit'], soft_time_limit)
+
+            c1 = task1.s() | task2.s()
+            c2 = task2.s() | task1.s()
+            for c in [c1, c2]:
+                c.set_soft_time_limit(soft_time_limit)
+                for task in c.tasks:
+                    self.assertEqual(task['options']['soft_time_limit'], soft_time_limit)
