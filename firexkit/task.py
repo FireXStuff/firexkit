@@ -207,7 +207,8 @@ class FireXTask(Task):
             logger.error(e)
             raise
         except Exception as e:
-            logger.exception(e)
+            logger.debug(e, exc_info=True)
+            logger.error(e)
             raise
         finally:
             try:
