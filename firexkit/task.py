@@ -93,6 +93,10 @@ class FireXTask(Task):
     def from_plugin(self):
         return self._from_plugin
 
+    @property
+    def request_soft_time_limit(self):
+        return self.request.timelimit[1]
+
     @from_plugin.setter
     def from_plugin(self, value):
         self._from_plugin = value
