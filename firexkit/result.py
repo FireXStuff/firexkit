@@ -229,7 +229,7 @@ def wait_for_any_results(results, max_wait=None, poll_max_wait=0.1, **kwargs):
             raise WaitOnChainTimeoutError('Results %r were still not ready after %d seconds' % (results, max_wait))
         for result in results:
             try:
-                wait_on_async_results([result], max_wait=poll_max_wait, **kwargs)
+                wait_on_async_results_and_maybe_raise([result], max_wait=poll_max_wait, **kwargs)
             except WaitOnChainTimeoutError:
                 pass
             else:
