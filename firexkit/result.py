@@ -151,7 +151,7 @@ def _check_for_traceback_in_parents(result, timeout=None, retry_delay=0.1):
             raise ChainRevokedException(task_id=str(parent),
                                         task_name=get_task_name_from_result(parent))
         else:
-            return _check_for_traceback_in_parents(parent)
+            return _check_for_traceback_in_parents(parent, timeout=timeout, retry_delay=retry_delay)
 
 
 WaitLoopCallBack = namedtuple('WaitLoopCallBack', ['func', 'frequency', 'kwargs'])
@@ -194,7 +194,7 @@ def wait_on_async_results(results,
                     raise ChainRevokedException(task_id=str(result),
                                                 task_name=get_task_name_from_result(result))
 
-                _check_for_traceback_in_parents(result)
+                _check_for_traceback_in_parents(result, timeout=30)
 
                 if max_trials and trials >= max_trials:
                     logging_name = get_result_logging_name(result)
