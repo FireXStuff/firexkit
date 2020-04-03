@@ -46,29 +46,44 @@ def populate_task_name(task_id, task, args, kwargs, **donotcare):
     current_app.backend.set(task_id, task.name)
 
 
+def safe_inspect_result(callable_function, timeout=None, retry_delay=0.1):
+    if callable(callable_function):
+        callable_obj = callable_function
+        attr_name = None
+    elif isinstance(callable_function, tuple):
+        callable_obj, attr_name = callable_function
+    else:
+        raise AssertionError('Must pass a callable or a tuple of (object, attribute)')
+
+    timeout_time = time.time() + timeout if timeout else None
+    try:
+        if attr_name:
+            return getattr(callable_obj, attr_name)
+        else:
+            return callable_obj()
+    except Exception as e:
+        # need to handle different timeout exceptions from different brokers
+        if type(e).__name__ != "TimeoutError":
+            raise
+        if not timeout:
+            logger.warning(f'Backend was not reachable and timed out...'
+                           f'retrying in {retry_delay}s')
+            time.sleep(retry_delay)
+        else:
+            if time.time() < timeout_time:
+                logger.warning(f'Backend was not reachable and timed out...'
+                               f'retrying in {retry_delay}s for a max of {timeout}s')
+                time.sleep(retry_delay)
+            else:
+                logger.error(f'Reached max timeout of {timeout}...giving up!')
+            raise
+
+
 def is_result_ready(result: AsyncResult, timeout=None, retry_delay=0.1):
     """
     Protect against broker being temporary unreachable and throwing a TimeoutError
     """
-    timeout_time = time.time() + timeout if timeout else None
-
-    while True:
-        try:
-            return result.ready()
-        except Exception as e:
-            # need to handle different timeout exceptions from different brokers
-            if type(e).__name__ != "TimeoutError":
-                raise
-            if not timeout:
-                logger.warning('Backend was not reachable and timed out...retrying')
-                time.sleep(retry_delay)
-            else:
-                if time.time() < timeout_time:
-                    logger.warning('Backend was not reachable and timed out...retrying for max %r seconds' % timeout)
-                    time.sleep(retry_delay)
-                else:
-                    logger.error('Reached max timeout of %r...giving up!' % timeout)
-                    raise
+    return safe_inspect_result(result.ready, timeout=timeout, retry_delay=retry_delay)
 
 
 def find_all_unsuccessful(result: AsyncResult, ignore_non_ready=False, depth=0)->{}:
@@ -121,15 +136,17 @@ def find_unsuccessful_in_chain(result: AsyncResult)->{}:
     return res
 
 
-def _check_for_traceback_in_parents(result):
-    parent = result.parent
+def _check_for_traceback_in_parents(result, timeout=None, retry_delay=0.1):
+    parent = safe_inspect_result((result, 'parent'), timeout=timeout, retry_delay=retry_delay)
     if parent:
-        if parent.failed():
-            cause = parent.result if isinstance(parent.result, Exception) else None
+        parent_failed = safe_inspect_result(parent.failed, timeout=timeout, retry_delay=retry_delay)
+        if parent_failed:
+            cause = safe_inspect_result((parent, 'result'), timeout=timeout, retry_delay=retry_delay)
+            cause = cause if isinstance(cause, Exception) else None
             raise ChainInterruptedException(task_id=str(parent),
                                             task_name=get_task_name_from_result(parent),
                                             cause=cause)
-        elif parent.state == REVOKED:
+        elif safe_inspect_result((parent, 'state'), timeout=timeout, retry_delay=retry_delay) == REVOKED:
             raise ChainRevokedException(task_id=str(parent),
                                         task_name=get_task_name_from_result(parent))
         else:
