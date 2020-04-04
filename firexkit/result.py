@@ -46,22 +46,11 @@ def populate_task_name(task_id, task, args, kwargs, **donotcare):
     current_app.backend.set(task_id, task.name)
 
 
-def safe_inspect_result(callable_function, timeout=None, retry_delay=0.1):
-    if callable(callable_function):
-        callable_obj = callable_function
-        attr_name = None
-    elif isinstance(callable_function, tuple):
-        callable_obj, attr_name = callable_function
-    else:
-        raise AssertionError('Must pass a callable or a tuple of (object, attribute)')
-
+def safe_inspect_result(callable_func, args=(), kwargs={}, timeout=None, retry_delay=0.1):
     timeout_time = time.time() + timeout if timeout else None
     while True:
         try:
-            if attr_name:
-                return getattr(callable_obj, attr_name)
-            else:
-                return callable_obj()
+            return callable_func(*args, **kwargs)
         except Exception as e:
             # need to handle different timeout exceptions from different brokers
             if type(e).__name__ != "TimeoutError":
@@ -138,16 +127,16 @@ def find_unsuccessful_in_chain(result: AsyncResult)->{}:
 
 
 def _check_for_traceback_in_parents(result, timeout=None, retry_delay=0.1):
-    parent = safe_inspect_result((result, 'parent'), timeout=timeout, retry_delay=retry_delay)
+    parent = safe_inspect_result(getattr, args=(result, 'parent'), timeout=timeout, retry_delay=retry_delay)
     if parent:
         parent_failed = safe_inspect_result(parent.failed, timeout=timeout, retry_delay=retry_delay)
         if parent_failed:
-            cause = safe_inspect_result((parent, 'result'), timeout=timeout, retry_delay=retry_delay)
+            cause = safe_inspect_result(getattr, args=(parent, 'result'), timeout=timeout, retry_delay=retry_delay)
             cause = cause if isinstance(cause, Exception) else None
             raise ChainInterruptedException(task_id=str(parent),
                                             task_name=get_task_name_from_result(parent),
                                             cause=cause)
-        elif safe_inspect_result((parent, 'state'), timeout=timeout, retry_delay=retry_delay) == REVOKED:
+        elif safe_inspect_result(getattr, args=(parent, 'state'), timeout=timeout, retry_delay=retry_delay) == REVOKED:
             raise ChainRevokedException(task_id=str(parent),
                                         task_name=get_task_name_from_result(parent))
         else:
