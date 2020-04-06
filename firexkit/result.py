@@ -8,6 +8,7 @@ from celery.result import AsyncResult
 from celery.signals import task_prerun
 from celery.states import FAILURE, REVOKED
 from celery.utils.log import get_task_logger
+from firexkit.broker import handle_broker_timeout
 from firexkit.revoke import RevokedRequests
 
 RETURN_KEYS_KEY = '__task_return_keys'
@@ -21,7 +22,7 @@ def get_task_name_from_result(result):
     except AttributeError:
         from celery import current_app
         backend = current_app.backend
-    name = backend.get(str(result))
+    name = handle_broker_timeout(backend.get, args=(str(result),), timeout=30)
     if name is None:
         name = ''
     else:
@@ -46,34 +47,11 @@ def populate_task_name(task_id, task, args, kwargs, **donotcare):
     current_app.backend.set(task_id, task.name)
 
 
-def safe_inspect_result(callable_func, args=(), kwargs={}, timeout=None, retry_delay=0.1):
-    timeout_time = time.time() + timeout if timeout else None
-    while True:
-        try:
-            return callable_func(*args, **kwargs)
-        except Exception as e:
-            # need to handle different timeout exceptions from different brokers
-            if type(e).__name__ != "TimeoutError":
-                raise
-            if not timeout:
-                logger.warning(f'Backend was not reachable and timed out...'
-                               f'retrying in {retry_delay}s')
-                time.sleep(retry_delay)
-            else:
-                if time.time() < timeout_time:
-                    logger.warning(f'Backend was not reachable and timed out...'
-                                   f'retrying in {retry_delay}s for a max of {timeout}s')
-                    time.sleep(retry_delay)
-                else:
-                    logger.error(f'Reached max timeout of {timeout}...giving up!')
-                raise
-
-
 def is_result_ready(result: AsyncResult, timeout=None, retry_delay=0.1):
     """
     Protect against broker being temporary unreachable and throwing a TimeoutError
     """
-    return safe_inspect_result(result.ready, timeout=timeout, retry_delay=retry_delay)
+    return handle_broker_timeout(result.ready, timeout=timeout, retry_delay=retry_delay)
 
 
 def find_all_unsuccessful(result: AsyncResult, ignore_non_ready=False, depth=0)->{}:
@@ -127,16 +105,16 @@ def find_unsuccessful_in_chain(result: AsyncResult)->{}:
 
 
 def _check_for_traceback_in_parents(result, timeout=None, retry_delay=0.1):
-    parent = safe_inspect_result(getattr, args=(result, 'parent'), timeout=timeout, retry_delay=retry_delay)
+    parent = handle_broker_timeout(getattr, args=(result, 'parent'), timeout=timeout, retry_delay=retry_delay)
     if parent:
-        parent_failed = safe_inspect_result(parent.failed, timeout=timeout, retry_delay=retry_delay)
+        parent_failed = handle_broker_timeout(parent.failed, timeout=timeout, retry_delay=retry_delay)
         if parent_failed:
-            cause = safe_inspect_result(getattr, args=(parent, 'result'), timeout=timeout, retry_delay=retry_delay)
+            cause = handle_broker_timeout(getattr, args=(parent, 'result'), timeout=timeout, retry_delay=retry_delay)
             cause = cause if isinstance(cause, Exception) else None
             raise ChainInterruptedException(task_id=str(parent),
                                             task_name=get_task_name_from_result(parent),
                                             cause=cause)
-        elif safe_inspect_result(getattr, args=(parent, 'state'), timeout=timeout, retry_delay=retry_delay) == REVOKED:
+        elif handle_broker_timeout(getattr, args=(parent, 'state'), timeout=timeout, retry_delay=retry_delay) == REVOKED:
             raise ChainRevokedException(task_id=str(parent),
                                         task_name=get_task_name_from_result(parent))
         else:
