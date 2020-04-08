@@ -28,14 +28,14 @@ def handle_broker_timeout(callable_func, args=(), kwargs={}, timeout=None, retry
                 else:
                     logger.error(f'Reached max timeout of {timeout}s...giving up!')
                     try:
-                        send_task_instrumentation_event(event_label='handle_broker_timeout-failure',
+                        send_task_instrumentation_event(instrumentation_label='handle_broker_timeout-failure',
                                                         broker_timeout_tries=tries)
                     finally:
                         raise
         else:
             try:
                 if tries > 1:
-                    send_task_instrumentation_event(event_label='handle_broker_timeout-success',
+                    send_task_instrumentation_event(instrumentation_label='handle_broker_timeout-success',
                                                     broker_timeout_tries=tries)
             finally:
                 return return_value
