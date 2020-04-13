@@ -9,24 +9,30 @@ def handle_broker_timeout(callable_func, args=(), kwargs={}, timeout=None, retry
     while True:
         tries += 1
         try:
+            callable_start_time = time.time()
             return_value = callable_func(*args, **kwargs)
         except Exception as e:
+            current_time = time.time()
+            callable_time_ms = (current_time - callable_start_time) * 1000
             # need to handle different timeout exceptions from different brokers
             if type(e).__name__ != "TimeoutError":
                 raise
             if not timeout:
                 logger.warning(f'Backend was not reachable and timed out...'
-                               f'retrying in {retry_delay}s')
+                               f'retrying in {retry_delay}s '
+                               f'(last call took {callable_time_ms:.2f}ms)')
                 time.sleep(retry_delay)
             else:
-                current_time = time.time()
                 if current_time < timeout_time:
+                    remaining_time = timeout_time - current_time
                     logger.warning(f'Backend was not reachable and timed out...'
                                    f'retrying in {retry_delay}s for a max of {timeout}s '
-                                   f'({timeout_time-current_time:.2f}s remaining)')
+                                   f'({remaining_time:.2f}s remaining; '
+                                   f'last call took {callable_time_ms:.2f}ms)')
                     time.sleep(retry_delay)
                 else:
-                    logger.error(f'Reached max timeout of {timeout}s...giving up!')
+                    logger.error(f'Reached max timeout of {timeout}s...giving up '
+                                 f'(last call took {callable_time_ms:.2f}ms)!')
                     try:
                         send_task_instrumentation_event(instrumentation_label='handle_broker_timeout-failure',
                                                         broker_timeout_tries=tries)
