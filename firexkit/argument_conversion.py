@@ -236,6 +236,7 @@ class SingleArgDecorator(object):
                         try:
                             v = fn(args[k])
                         except Exception as e:
+                            logger.debug('The original exception thrown by the converter is:', exc_info=True)
                             raise ArgumentConversionException(k + ": " + str(e)) from None
                         if v != orig_value:
                             logger.debug("Argument %s was converted from %s to %s" % (k, str(orig_value), str(v)))
