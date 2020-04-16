@@ -4,6 +4,7 @@ import logging
 import os
 from collections import OrderedDict
 import inspect
+from typing import Callable
 import traceback
 
 from celery.canvas import Signature
@@ -377,7 +378,8 @@ class FireXTask(Task):
                 [self._update_child_state(child_result, self._UNBLOCKED) for child_result in child_results]
 
     def enqueue_child(self, chain: Signature, add_to_enqueued_children: bool = True, block: bool = False,
-                      apply_async_options=None, **kwargs: dict) -> AsyncResult:
+                      apply_async_epilogue: Callable[[AsyncResult], None] = None, apply_async_options=None,
+                      **kwargs) -> AsyncResult:
         """Schedule a child task to run"""
         if apply_async_options is None:
             apply_async_options = dict()
@@ -389,6 +391,8 @@ class FireXTask(Task):
 
         verify_chain_arguments(chain)
         child_result = chain.apply_async(**apply_async_options)
+        if apply_async_epilogue:
+            apply_async_epilogue(child_result)
         if add_to_enqueued_children:
             self._update_child_state(child_result, self._PENDING)
         if block:
