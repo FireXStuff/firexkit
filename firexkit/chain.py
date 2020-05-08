@@ -138,7 +138,9 @@ def verify_chain_arguments(sig: Signature):
             for arg in v:
                 if txt:
                     txt += '\n'
-                txt += ' ' + arg + '\t: required by "%s"' % k.split('.')[-1]
+                service_path = k.split('.')
+                txt += ' ' + arg + '\t: required by "%s" (%s)' % \
+                       (service_path[-1], '.'.join(service_path[0:-1]))
         raise InvalidChainArgsException('Missing mandatory arguments: \n%s' % txt, missing)
     if undefined_indirect:
         txt = "\n".join([k + ": " + v for k, v in undefined_indirect.items()])
