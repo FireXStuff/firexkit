@@ -191,7 +191,8 @@ def wait_on_async_results(results,
     if len(failures) == 1:
         raise failures[0]
     elif failures:
-        multi_exception = MultipleFailuresException()
+        failed_task_ids = [e.task_id for e in failures if hasattr(e, 'task_id')]
+        multi_exception = MultipleFailuresException(failed_task_ids)
         multi_exception.failures = failures
         raise multi_exception
 
@@ -267,13 +268,14 @@ class ChainInterruptedException(ChainException):
 
 
 class MultipleFailuresException(ChainInterruptedException):
-    MESSAGE = "The chain has been interrupted by multiple failing microservices"
+    MESSAGE = "The chain has been interrupted by multiple failing microservices: %s"
 
-    def __init__(self):
+    def __init__(self, task_ids=('UNKNOWN',)):
+        self.task_ids = task_ids
         super(ChainInterruptedException, self).__init__()
 
     def __str__(self):
-        return self.MESSAGE
+        return self.MESSAGE % self.task_ids
 
 
 def get_task_results(results: dict) -> dict:
