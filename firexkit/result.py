@@ -293,7 +293,7 @@ def _get_results(result: AsyncResult, return_keys_only=True, merge_children_resu
         return results
     try:
         if result.successful():
-            _results = result.result
+            _results = dict(result.result)
             if _results:
                 if return_keys_only:
                     results = get_task_results(_results)
