@@ -1,3 +1,4 @@
+import copy
 import time
 from collections import namedtuple
 
@@ -293,7 +294,7 @@ def _get_results(result: AsyncResult, return_keys_only=True, merge_children_resu
         return results
     try:
         if result.successful():
-            _results = dict(result.result)
+            _results = copy.deepcopy(result.result) if isinstance(result.result, dict) else result.result
             if _results:
                 if return_keys_only:
                     results = get_task_results(_results)
