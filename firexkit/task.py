@@ -1,4 +1,5 @@
 import json
+import re
 import sys
 import logging
 import os
@@ -96,6 +97,19 @@ class FireXTask(Task):
         return self._from_plugin
 
     @property
+    def task_label(self) -> str:
+        """Returns a label for this task
+
+        Examples:
+            8345379a-e536-4566-b5c9-3d515ec5936a
+            8345379a-e536-4566-b5c9-3d515ec5936a_2 (if it was the second retry)
+            microservices.testsuites_tasks.CreateWorkerConfigFromTestsuites (if there was no request id yet)
+        """
+        label = str(self.request.id) if self.request.id else self.name
+        label += '_%d' % self.request.retries if self.request.retries >= 1 else ''
+        return label
+
+    @property
     def request_soft_time_limit(self):
         return self.request.timelimit[1]
 
@@ -164,6 +178,31 @@ class FireXTask(Task):
         """The body of the task executed by workers."""
         raise NotImplementedError('Tasks must define the run method.')
 
+    @staticmethod
+    def strip_orig_from_name(task_name):
+        return re.sub("(_orig)*$", "", task_name)
+
+    @staticmethod
+    def get_short_name(task_name):
+        # Task name of first task in chain. (I.E. 'task1' in module1.task1|module2.task2)
+        return task_name.split('|')[0].split('.')[-1]
+
+    @property
+    def name_without_orig(self):
+        return self.strip_orig_from_name(self.name)
+
+    @property
+    def short_name(self):
+        return self.get_short_name(self.name)
+
+    @property
+    def short_name_without_orig(self):
+        return self.strip_orig_from_name(self.short_name)
+
+    @property
+    def called_as_orig(self):
+        return True if self.name.endswith('_orig') else False
+
     @abstractmethod
     def pre_task_run(self, extra_events: Optional[dict] = None):
         """
@@ -182,6 +221,8 @@ class FireXTask(Task):
             self.send_event('task-started-info',
                             firex_bound_args=convert_to_serializable(bound_args),
                             firex_default_bound_args=convert_to_serializable(default_bound_args),
+                            called_as_orig=self.called_as_orig,
+                            long_name=self.name_without_orig,
                             log_filepath=self.task_logfile,
                             from_plugin=self.from_plugin,
                             code_filepath=self.code_filepath,
