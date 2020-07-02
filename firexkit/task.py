@@ -1,10 +1,11 @@
+import json
 import sys
-
 import logging
 import os
+import textwrap
 from collections import OrderedDict
 import inspect
-from typing import Callable
+from typing import Callable, Iterable, Optional
 import traceback
 
 from celery.canvas import Signature
@@ -164,20 +165,104 @@ class FireXTask(Task):
         raise NotImplementedError('Tasks must define the run method.')
 
     @abstractmethod
-    def pre_task_run(self):
+    def pre_task_run(self, extra_events: Optional[dict] = None):
         """
         Overrideable method to allow subclasses to do something with the
         BagOfGoodies before returning the results
         """
-        pass
+
+        if extra_events is None:
+            extra_events = {}
+
+        bound_args = self.bound_args
+        default_bound_args = self.default_bound_args
+
+        # Send a custom task-started-info event with the args
+        if not self.request.called_directly:
+            self.send_event('task-started-info',
+                            firex_bound_args=convert_to_serializable(bound_args),
+                            firex_default_bound_args=convert_to_serializable(default_bound_args),
+                            log_filepath=self.task_logfile,
+                            from_plugin=self.from_plugin,
+                            code_filepath=self.code_filepath,
+                            retries=self.request.retries,
+                            **extra_events)
+            self.send_flame(self.bag)
+
+        # Print the pre-call header
+        self.print_precall_header(bound_args, default_bound_args)
+        self._log_soft_time_limit_override_if_applicable()
+
+    def _log_soft_time_limit_override_if_applicable(self):
+        if not self.request.called_directly:
+            default_soft_time_limit = self.soft_time_limit
+            request_soft_time_limit = self.request_soft_time_limit
+            if default_soft_time_limit != request_soft_time_limit:
+                logger.debug(f'This task default soft_time_limit of '
+                             f'{default_soft_time_limit}{"s" if default_soft_time_limit is not None else ""} '
+                             f'was over-ridden to {request_soft_time_limit}s')
+            else:
+                if default_soft_time_limit is not None:
+                    logger.debug(f'This task soft_time_limit is {default_soft_time_limit}s')
 
     @abstractmethod
-    def post_task_run(self, results):
+    def post_task_run(self, results, extra_events: Optional[dict] = None):
         """
         Overrideable method to allow subclasses to do something with the
         BagOfGoodies after the task has been run
         """
-        pass
+
+        if extra_events is None:
+            extra_events = {}
+
+        # No need to expose the RETURN_KEYS_KEY
+        try:
+            del results[RETURN_KEYS_KEY]
+        except (TypeError, KeyError):
+            pass
+
+        # Print the post-call header
+        self.print_postcall_header(results)
+
+        # Send a custom task-succeeded event with the results
+        if not self.request.called_directly:
+            self.send_event('task-results', firex_result=convert_to_serializable(results), **extra_events)
+            self.send_flame(self.bag)
+
+    def print_precall_header(self, bound_args, default_bound_args):
+        n = 1
+        content = ''
+        args_list = []
+        for postfix, args in zip(['', ' (default)'], [bound_args, default_bound_args]):
+            if args:
+                for k,v in args.items():
+                    args_list.append('  %d. %s: %r%s' % (n, k, v, postfix))
+                    n += 1
+        if args_list:
+            content = 'ARGUMENTS\n' + '\n'.join(args_list)
+
+        task_name = self.name
+        if self.from_plugin:
+            task_name += ' (PLUGIN)'
+
+        logger.debug(banner('STARTED: %s' % task_name, content=content, length=100),
+                     extra={'label': self.task_label, 'span_class': 'task_started'})
+
+    def print_postcall_header(self, result):
+        content = ''
+        results_list = []
+        if result:
+            if isinstance(result, dict):
+                n = 1
+                for k, v in result.items():
+                    results_list.append('  %d. %s: %r' % (n, k, v))
+                    n += 1
+            else:
+                results_list.append('  %r' % result)
+        if results_list:
+            content = 'RETURNS\n' + '\n'.join(results_list)
+        logger.debug(banner('COMPLETED: %s' % self.name, ch='*', content=content, length=100),
+                     extra={'span_class': 'task_completed'})
 
     def __call__(self, *args, **kwargs):
         """
@@ -566,3 +651,42 @@ def get_attr_unwrapped(fun: callable, attr_name, *default_value):
     if default_value:
         return default_value[0]
     raise AttributeError(attr_name)
+
+
+def is_jsonable(obj) -> bool:
+    """Returns :const:`True` if the `obj` can be serialized via Json,
+    otherwise returns :const:`False`
+    """
+    try:
+        json.dumps(obj)
+    except TypeError:
+        return False
+    else:
+        return True
+
+
+def convert_to_serializable(obj, depth=0):
+    if is_jsonable(obj):
+        return obj
+
+    # recursive reference guard.
+    if depth < 10:
+        # Full object isn't jsonable, but some contents might be. Try walking the structure to get jsonable parts.
+        if isinstance(obj, dict):
+            return {k: convert_to_serializable(v, depth+1) for k, v in obj.items()}
+
+        # Note that it's important this DOES NOT catch strings, and it won't since strings are jsonable.
+        if isinstance(obj, Iterable):
+            return [convert_to_serializable(e, depth+1) for e in obj]
+
+    # Either input isn't walkable (i.e. dict or iterable), or we're too deep in the structure to keep walking.
+    return repr(obj)
+
+
+def banner(text, ch='=', length=78, content=''):
+    if content:
+        content = '\n'.join(['\n'.join(textwrap.wrap(line, width=length)) for line in content.split('\n')])
+        content += '\n'
+    spaced_text = '\n'.join(
+        ['\n'.join(textwrap.wrap(line, width=length, drop_whitespace=False)) for line in text.split('\n')])
+    return '\n' + ch * length + '\n' + spaced_text.center(length, ch) + '\n' + content + ch * length + '\n'
