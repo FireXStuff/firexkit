@@ -530,8 +530,9 @@ class FireXTask(Task):
             self._update_child_state(child_result, self._PENDING)
         if block:
             try:
+                if raise_exception_on_failure is not None:
+                    kwargs['raise_exception_on_failure'] = raise_exception_on_failure
                 wait_on_async_results_and_maybe_raise(results=child_result,
-                                                      raise_exception_on_failure=raise_exception_on_failure,
                                                       caller_task=self,
                                                       **kwargs)
             finally:
