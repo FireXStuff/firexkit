@@ -511,8 +511,11 @@ class FireXTask(Task):
                       **kwargs) -> AsyncResult:
         """Schedule a child task to run"""
 
-        if not block and raise_exception_on_failure is not None:
-            raise ValueError('Cannot control exceptions on child failure if we don\'t block')
+        if raise_exception_on_failure is not None:
+            if not block:
+                raise ValueError('Cannot control exceptions on child failure if we don\'t block')
+            # Only set it if not None, otherwise we want to leave the downstream default
+            kwargs['raise_exception_on_failure'] = raise_exception_on_failure
 
         if apply_async_options is None:
             apply_async_options = dict()
@@ -530,8 +533,6 @@ class FireXTask(Task):
             self._update_child_state(child_result, self._PENDING)
         if block:
             try:
-                if raise_exception_on_failure is not None:
-                    kwargs['raise_exception_on_failure'] = raise_exception_on_failure
                 wait_on_async_results_and_maybe_raise(results=child_result,
                                                       caller_task=self,
                                                       **kwargs)
