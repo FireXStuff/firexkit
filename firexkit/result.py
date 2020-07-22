@@ -362,7 +362,7 @@ def results2tuple(results: dict, return_keys: Union[str, tuple]) -> tuple:
     return tuple(results_to_return)
 
 
-def get_results_upto_parent(result: AsyncResult, parent_id: str = None, return_keys=(), **kwargs):
+def get_results_upto_parent(result: AsyncResult, return_keys=(), parent_id: str = None, **kwargs):
     extracted_dict = {}
     node = result
     while node and node.id != parent_id:
@@ -372,7 +372,12 @@ def get_results_upto_parent(result: AsyncResult, parent_id: str = None, return_k
                 # Since we're walking up the chain, children gets precedence in case we get the same key
                 extracted_dict[k] = v
         node = node.parent
-    return results2tuple(extracted_dict, return_keys) if return_keys else extracted_dict
+
+    from firexkit.task import FireXTask
+    if not return_keys or return_keys == FireXTask.DYNAMIC_RETURN or return_keys == (FireXTask.DYNAMIC_RETURN,):
+        return extracted_dict
+    else:
+        return results2tuple(extracted_dict, return_keys)
 
 
 def disable_async_result(result: AsyncResult):
