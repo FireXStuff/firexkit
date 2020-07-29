@@ -7,7 +7,6 @@ import textwrap
 from collections import OrderedDict
 import inspect
 from typing import Callable, Iterable, Optional
-import traceback
 
 from celery.canvas import Signature
 from celery.result import AsyncResult
@@ -57,7 +56,7 @@ class FireXTask(Task):
     """
     Task object that facilitates passing of arguments and return values from one task to another, to be used in chains
     """
-    DYNAMIC_RETURN = '__dict__'
+    DYNAMIC_RETURN = '__DYNAMIC_RETURN__'
     RETURN_KEYS_KEY = RETURN_KEYS_KEY
 
     def __init__(self):
@@ -274,7 +273,7 @@ class FireXTask(Task):
         args_list = []
         for postfix, args in zip(['', ' (default)'], [bound_args, default_bound_args]):
             if args:
-                for k,v in args.items():
+                for k, v in args.items():
                     args_list.append('  %d. %s: %r%s' % (n, k, v, postfix))
                     n += 1
         if args_list:
