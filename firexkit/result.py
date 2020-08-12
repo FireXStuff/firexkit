@@ -155,7 +155,7 @@ def wait_on_async_results(results,
     failures = []
     for result in results:
         logging_name = get_result_logging_name(result)
-        logger.debug('-> Waiting for %s to become ready' % logging_name)
+        logger.debug('-> Waiting for %s to complete' % logging_name)
         try:
             while not is_result_ready(result):
                 if RevokedRequests.instance().is_revoked(result):
