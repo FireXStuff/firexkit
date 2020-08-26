@@ -383,9 +383,9 @@ class FireXTask(Task):
 
         if not self.request.called_directly:
             if self.request.retries == self.max_retries:
-                logger.error('Failed all %d retry attempts' % self.max_retries)
+                logger.error(f'{self.short_name} failed all {self.max_retries} retry attempts')
             else:
-                logger.warning('Failed and retrying %d/%d' % (self.request.retries+1, self.max_retries))
+                logger.warning(f'{self.short_name} failed and retrying {self.request.retries+1}/{self.max_retries}')
         super(FireXTask, self).retry(*args, **kwargs)
 
     @property
