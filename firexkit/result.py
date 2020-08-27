@@ -7,7 +7,7 @@ from typing import Union
 
 from celery.result import AsyncResult
 from celery.signals import task_prerun
-from celery.states import FAILURE, REVOKED
+from celery.states import FAILURE, REVOKED, PENDING
 from celery.utils.log import get_task_logger
 from firexkit.broker import handle_broker_timeout
 from firexkit.revoke import RevokedRequests
@@ -159,8 +159,7 @@ def wait_on_async_results(results,
         try:
             while not is_result_ready(result):
                 if RevokedRequests.instance().is_revoked(result):
-                    raise ChainRevokedException(task_id=str(result),
-                                                task_name=get_task_name_from_result(result))
+                    break
 
                 _check_for_traceback_in_parents(result, timeout=30)
 
@@ -180,6 +179,9 @@ def wait_on_async_results(results,
             if result.state == REVOKED:
                 raise ChainRevokedException(task_id=str(result),
                                             task_name=get_task_name_from_result(result))
+            if result.state == PENDING:
+                raise ChainRevokedPreRunException(task_id=str(result),
+                                                  task_name=get_task_name_from_result(result))
             if result.state == FAILURE:
                 cause = result.result if isinstance(result.result, Exception) else None
                 raise ChainInterruptedException(task_id=str(result),
@@ -248,6 +250,10 @@ class ChainRevokedException(ChainException):
         if self.task_id:
             message += '[%s]' % self.task_id
         return message
+
+
+class ChainRevokedPreRunException(ChainRevokedException):
+    pass
 
 
 class ChainInterruptedException(ChainException):
