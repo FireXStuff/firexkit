@@ -13,5 +13,5 @@ setup(name='firexkit',
       packages=['firexkit', ],
       zip_safe=True,
       install_requires=[
-        "celery == 4.3.0",
+        "celery==4.3.0 --use-feature=2020-resolver",
       ],)
