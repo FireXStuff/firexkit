@@ -6,7 +6,7 @@ from contextlib import contextmanager
 
 from firexkit.result import wait_on_async_results, get_task_name_from_result, get_result_logging_name, \
     is_result_ready, WaitLoopCallBack, WaitOnChainTimeoutError, ChainRevokedException, ChainInterruptedException, \
-    get_tasks_names_from_results, MultipleFailuresException, find_unsuccessful_in_chain
+    get_tasks_names_from_results, MultipleFailuresException, find_unsuccessful_in_chain, _get_task_name_backend_key
 from firexkit.revoke import RevokedRequests
 
 
@@ -82,14 +82,14 @@ class ResultsLoggingNamesTests(unittest.TestCase):
         found_name = get_task_name_from_result(mock_result)
         self.assertEqual(found_name, "")
 
-        test_app.backend.set(result_id, "yes".encode('utf-8'))
+        test_app.backend.set(_get_task_name_backend_key(result_id), "yes".encode('utf-8'))
         found_name = get_task_name_from_result(mock_result)
         self.assertEqual(found_name, "yes")
 
     def test_get_many_task_names(self):
         test_app, mock_results = get_mocks(["a", "b"])
-        test_app.backend.set("a", "yes".encode('utf-8'))
-        test_app.backend.set("b", "yes".encode('utf-8'))
+        test_app.backend.set(_get_task_name_backend_key("a"), "yes".encode('utf-8'))
+        test_app.backend.set(_get_task_name_backend_key("b"), "yes".encode('utf-8'))
         found_name = get_tasks_names_from_results(mock_results)
         self.assertEqual(found_name, ["yes[a]", "yes[b]"])
 
