@@ -1,12 +1,10 @@
 import copy
-import pprint
 import time
 from collections import namedtuple
 
 import traceback
 from typing import Union
 
-from celery.app.control import Inspect
 from celery.result import AsyncResult
 from celery.signals import task_prerun
 from celery.states import FAILURE, REVOKED, PENDING
@@ -19,62 +17,22 @@ RETURN_KEYS_KEY = '__task_return_keys'
 logger = get_task_logger(__name__)
 
 
-def _get_task_name_backend_key(task: Union[AsyncResult, str]):
-    return f'{task}_NAME'
-
-
-def _get_task_host_backend_key(task: Union[AsyncResult, str]):
-    return f'{task}_HOST'
-
-
-def _get_task_info_from_result(result: AsyncResult, info_key: str):
+def get_task_name_from_result(result):
     try:
         backend = result.app.backend
     except AttributeError:
         from celery import current_app
         backend = current_app.backend
-    info = handle_broker_timeout(backend.get, args=(info_key,), timeout=30)
-    if info is None:
-        info = ''
+    name = handle_broker_timeout(backend.get, args=(str(result),), timeout=30)
+    if name is None:
+        name = ''
     else:
-        info = info.decode()
-    return info
-
-
-def _is_host_alive_from_result(result: AsyncResult, timeout=10.0):
-    hostname = get_task_host_from_result(result)
-    if not hostname:
-        # NOTE: This considers the host alive as long as the task isn't scheduled on a worker
-        return True, hostname
-
-    try:
-        app = result.app
-    except AttributeError:
-        app = None
-    if app is None:
-        from celery import current_app
-        app = current_app
-    inspection = Inspect(app=app, destination=(hostname,), timeout=timeout)
-
-    ping_reply = inspection.ping(destination=hostname)
-
-    if not ping_reply or hostname not in ping_reply or 'ok' not in ping_reply[hostname]:
-        logger.debug(f'Ping failed for host {hostname}. Response: {pprint.pformat(ping_reply)}')
-        return False, hostname
-
-    return True, hostname
-
-
-def get_task_name_from_result(result):
-    return _get_task_info_from_result(result, _get_task_name_backend_key(result))
+        name = name.decode()
+    return name
 
 
 def get_tasks_names_from_results(results):
     return [get_result_logging_name(r) for r in results]
-
-
-def get_task_host_from_result(result):
-    return _get_task_info_from_result(result, _get_task_host_backend_key(result))
 
 
 def get_result_logging_name(result: AsyncResult, name=None):
@@ -85,14 +43,9 @@ def get_result_logging_name(result: AsyncResult, name=None):
 
 # noinspection PyUnusedLocal
 @task_prerun.connect
-def populate_task_info(task_id, task, args, kwargs, **donotcare):
+def populate_task_name(task_id, task, args, kwargs, **donotcare):
     from celery import current_app
-    current_app.backend.set(_get_task_name_backend_key(task_id), task.name)
-
-    if task.request.hostname:
-        current_app.backend.set(_get_task_host_backend_key(task_id), task.request.hostname)
-
-    logger.debug(f'{task.name} with id {task_id} is scheduled on {task.request.hostname or "{NO_INFO}"}')
+    current_app.backend.set(task_id, task.name)
 
 
 def is_result_ready(result: AsyncResult, timeout=None, retry_delay=0.1):
@@ -189,9 +142,7 @@ def send_block_task_states_to_caller_task(func):
 def wait_on_async_results(results,
                           max_wait=None,
                           callbacks: [WaitLoopCallBack]=tuple(),
-                          sleep_between_iterations=0.05,
-                          ping_host_frequency=300,
-                          fail_on_ping_failures=3):
+                          sleep_between_iterations=0.05):
     if not results:
         return
 
@@ -205,8 +156,6 @@ def wait_on_async_results(results,
     for result in results:
         logging_name = get_result_logging_name(result)
         logger.debug('-> Waiting for %s to complete' % logging_name)
-
-        host_ping_failures = 0
         try:
             while not is_result_ready(result):
                 if RevokedRequests.instance().is_revoked(result):
@@ -226,19 +175,6 @@ def wait_on_async_results(results,
                 for callback in callbacks:
                     if trials % (callback.frequency / sleep_between_iterations) == 0:
                         callback.func(**callback.kwargs)
-
-                # Check for dead host
-                if ping_host_frequency and fail_on_ping_failures and \
-                        round(trials % (ping_host_frequency / sleep_between_iterations)) == 0:
-                    alive, hostname = _is_host_alive_from_result(result)
-                    if not alive:
-                        host_ping_failures += 1
-                        if host_ping_failures >= fail_on_ping_failures:
-                            raise ChainInterruptedByHostException(task_id=str(result),
-                                                                  task_name=get_task_name_from_result(result),
-                                                                  host=hostname)
-                    else:
-                        host_ping_failures = 0
 
             if result.state == REVOKED:
                 raise ChainRevokedException(task_id=str(result),
@@ -335,18 +271,6 @@ class ChainInterruptedException(ChainException):
             message += self.task_name
         if self.task_id:
             message += '[%s]' % self.task_id
-        return message
-
-
-class ChainInterruptedByHostException(ChainInterruptedException):
-
-    def __init__(self, task_id=None, task_name=None, host=None, cause=None):
-        super().__init__(task_id, task_name, cause)
-        self.host = host
-
-    def __str__(self):
-        message = super().__str__()
-        message += f": host {self.host or '{NO_INFO}'} appears to be down"
         return message
 
 
