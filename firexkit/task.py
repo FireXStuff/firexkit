@@ -323,7 +323,17 @@ class FireXTask(Task):
                     logger.debug("The following exception was thrown (and caught) when wait_for_children was "
                                  "implicitly called by this task's base class:\n" + str(e))
             return result
-        except (ChainInterruptedException, ChainRevokedException) as e:
+        except Exception as e:
+            self.handle_exception(e)
+        finally:
+            try:
+                if self._lagging_children_strategy is not PendingChildStrategy.Continue:
+                    self.revoke_pending_children()
+            finally:
+                self.remove_task_logfile_handler()
+
+    def handle_exception(self, e, logging_label=None):
+        if isinstance(e, ChainInterruptedException) or isinstance(e, ChainRevokedException):
             try:
                 exception_cause_uuid = e.task_id
             except AttributeError:
@@ -331,19 +341,9 @@ class FireXTask(Task):
             else:
                 if exception_cause_uuid:
                     self.send_event('task-exception-cause', exception_cause_uuid=exception_cause_uuid)
-            logger.debug(e, exc_info=True)
-            logger.error(e)
-            raise
-        except Exception as e:
-            logger.debug(e, exc_info=True)
-            logger.error(e)
-            raise
-        finally:
-            try:
-                if self._lagging_children_strategy is not PendingChildStrategy.Continue:
-                    self.revoke_pending_children()
-            finally:
-                self.remove_task_logfile_handler()
+        logger.debug(e, exc_info=e)
+        logger.error(e, extra={'label': logging_label} if logging_label else None)
+        raise e
 
     def _process_arguments_and_run(self, *args, **kwargs):
         # Organise the input args by creating a BagOfGoodies
