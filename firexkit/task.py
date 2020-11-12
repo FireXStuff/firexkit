@@ -341,7 +341,13 @@ class FireXTask(Task):
             else:
                 if exception_cause_uuid:
                     self.send_event('task-exception-cause', exception_cause_uuid=exception_cause_uuid)
-        logger.error(e, extra=logging_extra, exc_info=e)
+        mssg = f'{type(e).__name__}'
+        exception_string = str(e)
+        if exception_string:
+            mssg += f': {exception_string}'
+        logger.debug(e, exc_info=e)
+        logger.error(mssg, extra=logging_extra)
+
         if raise_exception:
             raise e
 
