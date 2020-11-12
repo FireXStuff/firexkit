@@ -346,9 +346,7 @@ class FireXTask(Task):
         exception_string = str(e)
         if exception_string:
             mssg += f': {exception_string}'
-        logger.debug(e, exc_info=e)
-        logger.error(mssg, extra=logging_extra)
-
+        logger.error(mssg, exc_info=e, extra=logging_extra)
         if raise_exception:
             raise e
 
