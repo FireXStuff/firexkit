@@ -26,6 +26,7 @@ from firexkit.result import get_tasks_names_from_results, wait_for_any_results, 
     RETURN_KEYS_KEY, wait_on_async_results_and_maybe_raise, get_result_logging_name, ChainInterruptedException, \
     ChainRevokedException
 
+
 logger = get_task_logger(__name__)
 
 
