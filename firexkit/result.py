@@ -3,13 +3,16 @@ import time
 from collections import namedtuple
 
 import traceback
+from pprint import pformat
 from typing import Union
 
+from celery import current_app
 from celery.result import AsyncResult
-from celery.signals import task_prerun
-from celery.states import FAILURE, REVOKED, PENDING
+from celery.signals import before_task_publish
+from celery.states import FAILURE, REVOKED, PENDING, STARTED, RECEIVED, RETRY
 from celery.utils.log import get_task_logger
 from firexkit.broker import handle_broker_timeout
+from firexkit.inspect import get_task, get_active_queues
 from firexkit.revoke import RevokedRequests
 
 RETURN_KEYS_KEY = '__task_return_keys'
@@ -17,18 +20,37 @@ RETURN_KEYS_KEY = '__task_return_keys'
 logger = get_task_logger(__name__)
 
 
-def get_task_name_from_result(result):
+def get_task_info_from_result(result, key: str = None):
     try:
         backend = result.app.backend
     except AttributeError:
-        from celery import current_app
         backend = current_app.backend
-    name = handle_broker_timeout(backend.get, args=(str(result),), timeout=30)
-    if name is None:
-        name = ''
+
+    if key is not None:
+        info = handle_broker_timeout(backend.client.hget, args=(str(result), key), timeout=30)
     else:
-        name = name.decode()
-    return name
+        info = handle_broker_timeout(backend.client.get, args=(str(result), ), timeout=30)
+
+    if info is None:
+        info = ''
+    else:
+        info = info.decode()
+    return info
+
+
+def get_task_name_from_result(result):
+    try:
+        return get_task_info_from_result(result=result, key='name')
+    except AttributeError:
+        return get_task_info_from_result(result=result)
+
+
+def get_task_queue_from_result(result):
+    try:
+        return get_task_info_from_result(result=result, key='queue')
+    except AttributeError:
+        logger.exception('Task queue info not supported for this broker')
+        return ''
 
 
 def get_tasks_names_from_results(results):
@@ -41,11 +63,23 @@ def get_result_logging_name(result: AsyncResult, name=None):
     return '%s[%s]' % (name, result)
 
 
-# noinspection PyUnusedLocal
-@task_prerun.connect
-def populate_task_name(task_id, task, args, kwargs, **donotcare):
-    from celery import current_app
-    current_app.backend.set(task_id, task.name)
+@before_task_publish.connect()
+def populate_task_info(sender, declare, headers, **_kwargs):
+    task_info = {'name': sender}
+    try:
+        task_info.update({'queue': declare[0].name})
+    except (IndexError, AttributeError):
+        pass
+
+    current_app.backend.client.hmset(headers['id'], task_info)
+
+
+def mark_queues_ready(*queue_names: str):
+    current_app.backend.client.sadd('QUEUES', *queue_names)
+
+
+def was_queue_ready(queue_name: str):
+    return current_app.backend.client.sismember('QUEUES', queue_name)
 
 
 def is_result_ready(result: AsyncResult, timeout=None, retry_delay=0.1):
@@ -122,6 +156,64 @@ def _check_for_traceback_in_parents(result, timeout=None, retry_delay=0.1):
             return _check_for_traceback_in_parents(parent, timeout=timeout, retry_delay=retry_delay)
 
 
+def _is_worker_alive(result: AsyncResult, timeout=None, retry_delay=0.1, retries=1):
+    task_name = get_result_logging_name(result)
+    tries = 0
+
+    # NOTE: Retries for possible false negative in the case where task changes host in the small timing window
+    # between getting task state / info and checking for aliveness. Retries for broker issues are handled downstream
+    while tries <= retries:
+        state = handle_broker_timeout(lambda r: r.state, args=(result,), timeout=timeout, retry_delay=retry_delay)
+        if not state:
+            logger.debug(f'Cannot get state for {task_name}; assuming task is alive')
+            return True
+
+        if state == STARTED or state == RECEIVED:
+            # Query the worker to see if it knows about this task
+            info = handle_broker_timeout(lambda r: r.info, args=(result,), timeout=timeout, retry_delay=retry_delay)
+            hostname = info.get('hostname') if info else None
+
+            if not hostname:
+                logger.debug(f'Cannot get run info for {task_name}; assuming task is alive.'
+                             f' Info: {info}, Hostname: {hostname}')
+                return True
+
+            task_info = get_task(method_args=(result.id,), destination=(hostname,), timeout=10)
+            if task_info and any(task_info.values()):
+                return True
+
+            logger.debug(f'Task inspection for {task_name} returned:\n{pformat(task_info)}')
+
+        elif state == PENDING or state == RETRY:
+            # Check if task queue is alive
+            task_queue = get_task_queue_from_result(result)
+            if not task_queue:
+                logger.debug(f'Cannot get task queue for {task_name}; assuming task is alive.')
+                return True
+
+            queue_seen = was_queue_ready(queue_name=task_queue)
+            if not queue_seen:
+                logger.debug(f'Queue "{task_queue}" for {task_name} not seen yet; assuming task is alive.')
+                return True
+
+            queues = get_active_queues()
+            active_queues = [queue['name'] for node in queues.values() for queue in node] if queues else []
+            if task_queue in active_queues:
+                return True
+
+            logger.debug(f'Active queues inspection for {task_name} returned:\n{pformat(queues)}\n'
+                         f'Active queues: {pformat(active_queues)}')
+
+        else:
+            logger.debug(f'Unknown state ({state} for task {task_name}; assuming task is alive.')
+            return True
+
+        tries += 1
+        logger.info(f'Task {task_name} is not responding to queries. Tries: {tries}')
+
+    return False
+
+
 WaitLoopCallBack = namedtuple('WaitLoopCallBack', ['func', 'frequency', 'kwargs'])
 
 
@@ -142,7 +234,10 @@ def send_block_task_states_to_caller_task(func):
 def wait_on_async_results(results,
                           max_wait=None,
                           callbacks: [WaitLoopCallBack]=tuple(),
-                          sleep_between_iterations=0.05):
+                          sleep_between_iterations=0.05,
+                          check_task_worker_frequency=900,
+                          fail_on_worker_failures=3
+                          ):
     if not results:
         return
 
@@ -157,6 +252,7 @@ def wait_on_async_results(results,
         logging_name = get_result_logging_name(result)
         logger.debug('-> Waiting for %s to complete' % logging_name)
         try:
+            worker_failures = 0
             while not is_result_ready(result):
                 if RevokedRequests.instance().is_revoked(result):
                     break
@@ -176,10 +272,25 @@ def wait_on_async_results(results,
                     if trials % (callback.frequency / sleep_between_iterations) == 0:
                         callback.func(**callback.kwargs)
 
+                # Check for dead workers
+                if check_task_worker_frequency and fail_on_worker_failures and \
+                        round(trials % (check_task_worker_frequency / sleep_between_iterations)) == 0:
+                    alive = _is_worker_alive(result=result)
+                    if not alive:
+                        worker_failures += 1
+                        logger.warning(f'Task {get_task_name_from_result(result)} appears to be a zombie.'
+                                       f' Failures: {worker_failures}')
+                        if worker_failures >= fail_on_worker_failures:
+                            raise ChainInterruptedByZombieTaskException(task_id=str(result),
+                                                                        task_name=get_task_name_from_result(result))
+                    else:
+                        worker_failures = 0
+
             if result.state == REVOKED:
                 raise ChainRevokedException(task_id=str(result),
                                             task_name=get_task_name_from_result(result))
             if result.state == PENDING:
+                # Pending tasks can be in revoke list. State will still be PENDING.
                 raise ChainRevokedPreRunException(task_id=str(result),
                                                   task_name=get_task_name_from_result(result))
             if result.state == FAILURE:
@@ -272,6 +383,11 @@ class ChainInterruptedException(ChainException):
         if self.task_id:
             message += '[%s]' % self.task_id
         return message
+
+
+class ChainInterruptedByZombieTaskException(ChainInterruptedException):
+    def __str__(self):
+        return super().__str__() + ': (zombie task)'
 
 
 class MultipleFailuresException(ChainInterruptedException):

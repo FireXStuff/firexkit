@@ -1,4 +1,6 @@
 import time
+from typing import Iterable
+
 from celery import current_app
 from celery.utils.log import get_task_logger
 
@@ -9,11 +11,15 @@ class InspectionReturnedNone(Exception):
     pass
 
 
-def inspect_with_retry(inspect_retry_timeout=30, inspect_method=None, retry_if_None_returned=True, celery_app=current_app, **inspect_opts):
+def inspect_with_retry(inspect_retry_timeout=30, inspect_method=None, retry_if_None_returned=True,
+                       celery_app=current_app, method_args: Iterable = None, **inspect_opts):
+    if method_args is None:
+        method_args = ()
+
     def _inspect():
         i = celery_app.control.inspect(**inspect_opts)
         if inspect_method:
-            return getattr(i, inspect_method)()
+            return getattr(i, inspect_method)(*method_args)
         else:
             return i
 
@@ -56,3 +62,8 @@ def get_revoked(**kwargs):
 def get_active_queues(**kwargs):
     kwargs.pop('inspect_method', None)
     return inspect_with_retry(inspect_method='active_queues', **kwargs)
+
+
+def get_task(**kwargs):
+    kwargs.pop('inspect_method', None)
+    return inspect_with_retry(inspect_method='query_task', **kwargs)
