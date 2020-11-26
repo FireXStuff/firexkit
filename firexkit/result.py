@@ -512,3 +512,14 @@ def disable_async_result(result: AsyncResult):
 
     for child in children:
         disable_async_result(child)
+
+#
+# Returns the first exception that is not a "ChainInterruptedException"
+# in the exceptions stack.
+#
+def first_non_chain_interrupted_exception(ex):
+    e = ex
+    while e.__cause__ is not None and isinstance(e, ChainInterruptedException):
+        e = e.__cause__
+    return e
+
