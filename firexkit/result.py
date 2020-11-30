@@ -236,7 +236,8 @@ def wait_on_async_results(results,
                           callbacks: [WaitLoopCallBack]=tuple(),
                           sleep_between_iterations=0.05,
                           check_task_worker_frequency=900,
-                          fail_on_worker_failures=3
+                          fail_on_worker_failures=3,
+                          log_msg=True
                           ):
     if not results:
         return
@@ -250,7 +251,8 @@ def wait_on_async_results(results,
     failures = []
     for result in results:
         logging_name = get_result_logging_name(result)
-        logger.debug('-> Waiting for %s to complete' % logging_name)
+        if log_msg:
+            logger.debug('-> Waiting for %s to complete' % logging_name)
         try:
             worker_failures = 0
             while not is_result_ready(result):
@@ -320,20 +322,25 @@ def wait_on_async_results_and_maybe_raise(results, raise_exception_on_failure=Tr
 
 
 # This is a generator that returns one AsyncResult as it completes
-def wait_for_any_results(results, max_wait=None, poll_max_wait=0.1, **kwargs):
+def wait_for_any_results(results, max_wait=None, poll_max_wait=0.1, log_msg=False, **kwargs):
     if isinstance(results, AsyncResult):
         results = [results]
     start_time = time.time()
+
+    logging_names = [f'-> {get_result_logging_name(result)}' for result in results]
+
+    logger.debug('Waiting for any of the following tasks to complete:\n' + '\n'.join(logging_names))
     while len(results):
         if max_wait and max_wait < time.time() - start_time:
             raise WaitOnChainTimeoutError('Results %r were still not ready after %d seconds' % (results, max_wait))
         for result in results:
             try:
-                wait_on_async_results_and_maybe_raise([result], max_wait=poll_max_wait, **kwargs)
+                wait_on_async_results_and_maybe_raise([result], max_wait=poll_max_wait, log_msg=log_msg, **kwargs)
             except WaitOnChainTimeoutError:
                 pass
             else:
                 yield result
+                logger.debug(f'--> {get_result_logging_name(result)} completed')
                 results.remove(result)
                 break
 
