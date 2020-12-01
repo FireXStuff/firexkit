@@ -182,7 +182,7 @@ def _is_worker_alive(result: AsyncResult, timeout=None, retry_delay=0.1, retries
             if task_info and any(task_info.values()):
                 return True
 
-            logger.debug(f'Task inspection for {task_name} returned:\n{pformat(task_info)}')
+            logger.debug(f'Task inspection for {task_name} on {hostname} returned:\n{pformat(task_info)}')
 
         elif state == PENDING or state == RETRY:
             # Check if task queue is alive
@@ -197,11 +197,12 @@ def _is_worker_alive(result: AsyncResult, timeout=None, retry_delay=0.1, retries
                 return True
 
             queues = get_active_queues()
-            active_queues = [queue['name'] for node in queues.values() for queue in node] if queues else []
+            active_queues = {queue['name'] for node in queues.values() for queue in node} if queues else set()
             if task_queue in active_queues:
                 return True
 
-            logger.debug(f'Active queues inspection for {task_name} returned:\n{pformat(queues)}\n'
+            logger.debug(f'Active queues inspection for {task_name} on queue {task_queue} returned:\n'
+                         f'{pformat(queues)}\n'
                          f'Active queues: {pformat(active_queues)}')
 
         else:
