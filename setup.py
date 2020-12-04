@@ -11,8 +11,12 @@ setup(name='firexkit',
       author_email='firex-dev@gmail.com',
       license='BSD-3-Clause',
       packages=['firexkit', ],
+      package_data={
+            'firexkit': ['resources/*']
+      },
       zip_safe=True,
       install_requires=[
         "vine==1.3.0",
         "celery==4.3.0",
+        "jinja2",
       ],)

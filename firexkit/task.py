@@ -26,6 +26,7 @@ from firexkit.argument_conversion import ConverterRegister
 from firexkit.result import get_tasks_names_from_results, wait_for_any_results, \
     RETURN_KEYS_KEY, wait_on_async_results_and_maybe_raise, get_result_logging_name, ChainInterruptedException, \
     ChainRevokedException
+from firexkit.resources import get_firex_css_filepath, get_firex_logo_filepath
 
 logger = get_task_logger(__name__)
 
@@ -614,10 +615,9 @@ class FireXTask(Task):
 
     def write_task_log_html_header(self):
         from firexapp.engine.logging import JINJA_ENV
-        logs_dir = self.app.conf.logs_dir
         html_header = JINJA_ENV.get_template('log_template.html').render(
-            firex_stylesheet=Uid.get_firex_css_filepath(logs_dir),
-            logo=Uid.get_firex_logo_filepath(logs_dir),
+            firex_stylesheet=get_firex_css_filepath(self.app.conf.resources_dir),
+            logo=get_firex_logo_filepath(self.app.conf.resources_dir),
             firex_id=self.app.conf.uid,
             link_for_logo=self.app.conf.link_for_logo,
             header_main_title=self.name_without_orig,
