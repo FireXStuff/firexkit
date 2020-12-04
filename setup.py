@@ -12,7 +12,7 @@ setup(name='firexkit',
       license='BSD-3-Clause',
       packages=['firexkit', ],
       package_data={
-            'firexkit': ['resources/*']
+            'firexkit': ['resources/*', 'templates/*']
       },
       zip_safe=True,
       install_requires=[
