@@ -7,6 +7,7 @@ import textwrap
 from collections import OrderedDict
 import inspect
 from typing import Callable, Iterable, Optional
+from urllib.parse import urljoin
 
 from celery.canvas import Signature
 from celery.result import AsyncResult
@@ -18,14 +19,13 @@ from abc import abstractmethod
 from celery.app.task import Task
 from celery.local import PromiseProxy
 from celery.utils.log import get_task_logger, get_logger
-
+from firexapp.submit.uid import Uid
 from firexkit.revoke import revoke_recursively
 from firexkit.bag_of_goodies import BagOfGoodies
 from firexkit.argument_conversion import ConverterRegister
 from firexkit.result import get_tasks_names_from_results, wait_for_any_results, \
     RETURN_KEYS_KEY, wait_on_async_results_and_maybe_raise, get_result_logging_name, ChainInterruptedException, \
     ChainRevokedException
-
 
 logger = get_task_logger(__name__)
 
@@ -603,8 +603,37 @@ class FireXTask(Task):
     def get_task_logfilename(task_name, uuid):
         return '{}_{}.html'.format(task_name, str(uuid))
 
+    @property
+    def worker_log_url(self):
+        from firexapp.celery_manager import CeleryManager
+        worker_log_url = CeleryManager.get_worker_log_file(self.app.conf.logs_dir, self.request.hostname)
+        task_label = self.task_label
+        if task_label:
+            worker_log_url = urljoin(worker_log_url, f'#{task_label}')
+        return worker_log_url
+
+    def write_task_log_html_header(self):
+        from firexapp.engine.logging import JINJA_ENV
+        logs_dir = self.app.conf.logs_dir
+        html_header = JINJA_ENV.get_template('log_template.html').render(
+            firex_stylesheet=Uid.get_firex_css_filepath(logs_dir),
+            logo=Uid.get_firex_logo_filepath(logs_dir),
+            firex_id=self.app.conf.uid,
+            link_for_logo=self.app.conf.link_for_logo,
+            header_main_title=self.name_without_orig,
+            worker_log_url=self.worker_log_url,
+            worker_name=self.request.hostname,
+        )
+
+        with open(self.task_logfile, 'w') as f:
+            f.write(html_header)
+
     def add_task_logfile_handler(self):
         task_logfile = self.task_logfile
+
+        if not os.path.isfile(task_logfile):
+            self.write_task_log_html_header()
+
         self._temp_loghandlers = {}
         fh_root = logging.handlers.WatchedFileHandler(task_logfile, mode='a+')
         fh_root.setFormatter(self.root_logger_file_handler.formatter)
