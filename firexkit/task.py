@@ -25,7 +25,7 @@ from firexkit.argument_conversion import ConverterRegister
 from firexkit.result import get_tasks_names_from_results, wait_for_any_results, \
     RETURN_KEYS_KEY, wait_on_async_results_and_maybe_raise, get_result_logging_name, ChainInterruptedException, \
     ChainRevokedException
-from firexkit.resources import get_firex_css_filepath, get_firex_logo_filepath
+from firexkit.resources import get_firex_css_filepath, get_firex_logo_filepath, JINJA_ENV
 
 logger = get_task_logger(__name__)
 
@@ -605,15 +605,13 @@ class FireXTask(Task):
 
     @property
     def worker_log_url(self):
-        from firexapp.celery_manager import CeleryManager
-        worker_log_url = CeleryManager.get_worker_log_file(self.app.conf.logs_dir, self.request.hostname)
+        worker_log_url = self.worker_log_file
         task_label = self.task_label
         if task_label:
             worker_log_url = urljoin(worker_log_url, f'#{task_label}')
         return worker_log_url
 
     def write_task_log_html_header(self):
-        from firexapp.engine.logging import JINJA_ENV
         html_header = JINJA_ENV.get_template('log_template.html').render(
             firex_stylesheet=get_firex_css_filepath(self.app.conf.resources_dir),
             logo=get_firex_logo_filepath(self.app.conf.resources_dir),
@@ -770,3 +768,5 @@ def banner(text, ch='=', length=78, content=''):
     spaced_text = '\n'.join(
         ['\n'.join(textwrap.wrap(line, width=length, drop_whitespace=False)) for line in text.split('\n')])
     return '\n' + ch * length + '\n' + spaced_text.center(length, ch) + '\n' + content + ch * length + '\n'
+
+
