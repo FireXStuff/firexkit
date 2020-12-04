@@ -19,7 +19,6 @@ from abc import abstractmethod
 from celery.app.task import Task
 from celery.local import PromiseProxy
 from celery.utils.log import get_task_logger, get_logger
-from firexapp.submit.uid import Uid
 from firexkit.revoke import revoke_recursively
 from firexkit.bag_of_goodies import BagOfGoodies
 from firexkit.argument_conversion import ConverterRegister
