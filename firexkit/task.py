@@ -612,13 +612,14 @@ class FireXTask(Task):
         return worker_log_url
 
     def write_task_log_html_header(self):
+        base_dir = self.task_logging_dirpath
         html_header = JINJA_ENV.get_template('log_template.html').render(
-            firex_stylesheet=get_firex_css_filepath(self.app.conf.resources_dir),
-            logo=get_firex_logo_filepath(self.app.conf.resources_dir),
+            firex_stylesheet=get_firex_css_filepath(self.app.conf.resources_dir, relative_from=base_dir),
+            logo=get_firex_logo_filepath(self.app.conf.resources_dir, relative_from=base_dir),
             firex_id=self.app.conf.uid,
             link_for_logo=self.app.conf.link_for_logo,
             header_main_title=self.name_without_orig,
-            worker_log_url=self.worker_log_url,
+            worker_log_url=os.path.relpath(self.worker_log_url, base_dir),
             worker_name=self.request.hostname,
         )
 
