@@ -18,6 +18,7 @@ from types import MethodType
 from abc import abstractmethod
 from celery.app.task import Task
 from celery.local import PromiseProxy
+from celery.signals import task_prerun, task_postrun, task_revoked
 from celery.utils.log import get_task_logger, get_logger
 from firexkit.revoke import revoke_recursively
 from firexkit.bag_of_goodies import BagOfGoodies
@@ -26,6 +27,7 @@ from firexkit.result import get_tasks_names_from_results, wait_for_any_results, 
     RETURN_KEYS_KEY, wait_on_async_results_and_maybe_raise, get_result_logging_name, ChainInterruptedException, \
     ChainRevokedException
 from firexkit.resources import get_firex_css_filepath, get_firex_logo_filepath, JINJA_ENV
+import time
 
 logger = get_task_logger(__name__)
 
@@ -655,6 +657,12 @@ class FireXTask(Task):
         if not self.request.called_directly:
             super(FireXTask, self).send_event(*args, **kwargs)
 
+    def duration(self):
+        return get_time_from_task_start(self.request.id, self.backend)
+
+    def start_time(self):
+        return get_task_start_time(self.request.id, self.backend)
+
 
 def undecorate_func(func):
     undecorated_func = func
@@ -771,3 +779,44 @@ def banner(text, ch='=', length=78, content=''):
     return '\n' + ch * length + '\n' + spaced_text.center(length, ch) + '\n' + content + ch * length + '\n'
 
 
+def get_starttime_dbkey(task_id):
+    return task_id + '_starttime'
+
+
+def get_task_start_time(task_id, backend):
+    starttime_dbkey = get_starttime_dbkey(task_id)
+    try:
+        return float(backend.get(starttime_dbkey))
+    except:
+        return None
+
+
+def get_time_from_task_start(task_id, backend):
+    start_time = get_task_start_time(task_id, backend)
+    if start_time:
+        runtime = time.time() - start_time
+        return runtime
+    return None
+
+
+@task_prerun.connect
+def statsd_task_prerun(sender, task, task_id, args, kwargs, **donotcare):
+    starttime_dbkey = get_starttime_dbkey(task_id)
+    if not sender.backend.get(starttime_dbkey):
+        sender.backend.set(starttime_dbkey, time.time())
+
+
+def send_task_completed_event(task, task_id, backend):
+    actual_runtime = get_time_from_task_start(task_id, backend)
+    if actual_runtime is not None:
+        task.send_event('task-completed', actual_runtime=convert_to_serializable(actual_runtime))
+
+
+@task_postrun.connect
+def statsd_task_postrun(sender, task, task_id, args, kwargs, **donotcare):
+    send_task_completed_event(task, task_id, sender.backend)
+
+
+@task_revoked.connect
+def statsd_task_revoked(sender, request, terminated, signum, expired, **kwargs):
+    send_task_completed_event(sender, request.id, sender.backend)
