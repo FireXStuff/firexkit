@@ -547,6 +547,28 @@ class FireXTask(Task):
                     self._update_child_state(child_result, self._UNBLOCKED)
         return child_result
 
+    def enqueue_in_parallel(self, chains, max_parallel_chains=15, wait_for_completion=True,
+                            raise_exception_on_failure=False):
+        """ This method executes the provided list of Signatures/Chains in parallel
+        and returns the associated list of "async_result" objects.
+        The results are returned in the same order as the input Signatures/Chains."""
+        promises = []
+        scheduled = []
+        for c in chains:
+            if len(scheduled) >= max_parallel_chains:
+                # Reach the max allowed parallel chains, wait for one to complete before scheduling the next one.
+                async_res = next(wait_for_any_results(scheduled, raise_exception_on_failure=raise_exception_on_failure))
+                scheduled.remove(async_res)
+            # Schedule the next child
+            logger.debug(f'Enqueueing: {c.get_label()}')
+            promise = self.enqueue_child(c)
+            scheduled.append(promise)
+            promises.append(promise)
+        if wait_for_completion or raise_exception_on_failure:
+            # Wait for all children to complete
+            self.wait_for_specific_children(promises, raise_exception_on_failure=raise_exception_on_failure)
+        return promises
+
     def revoke_pending_children(self, **kwargs):
         pending_children = self.pending_enqueued_children
         if pending_children:
