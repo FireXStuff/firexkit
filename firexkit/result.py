@@ -8,7 +8,7 @@ from typing import Union
 
 from celery import current_app
 from celery.result import AsyncResult
-from celery.signals import before_task_publish
+from celery.signals import before_task_publish, task_prerun
 from celery.states import FAILURE, REVOKED, PENDING, STARTED, RECEIVED, RETRY
 from celery.utils.log import get_task_logger
 from firexkit.broker import handle_broker_timeout
@@ -63,7 +63,7 @@ def get_result_logging_name(result: AsyncResult, name=None):
     return '%s[%s]' % (name, result)
 
 
-@before_task_publish.connect()
+@before_task_publish.connect
 def populate_task_info(sender, declare, headers, **_kwargs):
     task_info = {'name': sender}
     try:
@@ -72,6 +72,15 @@ def populate_task_info(sender, declare, headers, **_kwargs):
         pass
 
     current_app.backend.client.hmset(headers['id'], task_info)
+
+
+@task_prerun.connect
+def update_task_name(sender, task_id, *_args, **_kwargs):
+    # Although the name was populated in populate_task_info before_task_publish, the name
+    # can be inaccurate if it was a plugin. We can only over-write it with the accurate name
+    # at task_prerun.
+    task_info = {'name': sender.name}
+    current_app.backend.client.hmset(task_id, task_info)
 
 
 def mark_queues_ready(*queue_names: str):
