@@ -92,7 +92,8 @@ class FireXTask(Task):
             self.initialize_context()
             yield
         finally:
-            del self.context
+            if hasattr(self, 'context'):
+                del self.context
 
     @property
     def from_plugin(self):
@@ -225,7 +226,7 @@ class FireXTask(Task):
                             firex_default_bound_args=convert_to_serializable(default_bound_args),
                             called_as_orig=self.called_as_orig,
                             long_name=self.name_without_orig,
-                            log_filepath=self.task_logfile,
+                            log_filepath=self.task_log_url,
                             from_plugin=self.from_plugin,
                             code_filepath=self.code_filepath,
                             retries=self.request.retries,
@@ -614,6 +615,15 @@ class FireXTask(Task):
     @staticmethod
     def get_task_logging_dirpath(file_logging_dirpath, hostname):
         return os.path.join(file_logging_dirpath, hostname)
+
+    @property
+    def task_log_url(self):
+        if self.app.conf.install_config and self.app.conf.install_config.has_viewer():
+            # FIXME: there must be a more direct way of getting this relative path.
+            log_entry_rel_run_root = os.path.relpath(self.task_logfile, self.app.conf.logs_dir)
+            return self.app.conf.install_config.get_log_entry_url(log_entry_rel_run_root)
+        else:
+            return self.task_logfile
 
     @property
     def task_logfile(self):
