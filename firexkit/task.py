@@ -8,6 +8,7 @@ from collections import OrderedDict
 import inspect
 from typing import Callable, Iterable, Optional
 from urllib.parse import urljoin
+from copy import deepcopy
 
 from celery.canvas import Signature
 from celery.result import AsyncResult
@@ -53,6 +54,106 @@ class ReturnsCodingException(Exception):
 
 class DyanmicReturnsNotADict(Exception):
     pass
+
+
+def create_collapse_ops(flex_collapse_ops_spec):
+    from typing import Pattern
+
+    if isinstance(flex_collapse_ops_spec, list):
+        return flex_collapse_ops_spec
+
+    result_ops = []
+    if isinstance(flex_collapse_ops_spec, dict):
+        for k, v in flex_collapse_ops_spec.items():
+            op = {}
+            if isinstance(k, str):
+                op['relative_to_nodes'] = {'type': 'task_name', 'value': k}
+            elif issubclass(type(k), Pattern):  # can't use isinstance till 3.6
+                op['relative_to_nodes'] = {'type': 'task_name_regex', 'value': k.pattern}
+
+            if isinstance(v, str):
+                op['targets'] = [v]
+            elif isinstance(v, list):
+                op['targets'] = v
+            elif isinstance(v, dict):
+                # take targets, operation from value.
+                op.update(v)
+
+            if 'targets' in op:
+                result_ops.append(op)
+            else:
+                # TODO: fail or ignore malformed specs?
+                pass
+    elif isinstance(flex_collapse_ops_spec, str):
+        result_ops.append({'targets': [flex_collapse_ops_spec]})
+
+    return result_ops
+
+
+def expand_self_op():
+    return {'operation': 'expand', 'targets': ['self']}
+
+
+def flame_collapse(flex_collapse_ops):
+    def formatter(ops, task):
+        filled_ops = []
+        for op in ops:
+            if 'targets' not in op or not isinstance(op['targets'], list):
+                # Ignore malformed operations.
+                continue
+            filled_op = {
+                # defaults.
+                'relative_to_nodes': {'type': 'task_uuid', 'value': task.request.id},
+                'source_node': {'type': 'task_uuid', 'value': task.request.id},
+                'operation': 'collapse',
+            }
+            filled_op.update(op)
+            filled_ops.append(filled_op)
+        return filled_ops
+
+    static_ops = create_collapse_ops(flex_collapse_ops)
+    return flame('_default_display', formatter, data_type='object', bind=True, on_next=True, on_next_args=[static_ops],
+                 decorator_name=flame_collapse.__name__)
+
+
+def _default_flame_formatter(data):
+    if data is None:
+        return None
+    if not isinstance(data, str):
+        try:
+            return json.dumps(data)
+        except TypeError:
+            return str(data)
+    return data
+
+
+def create_flame_config(existing_configs, formatter=_default_flame_formatter, data_type='html', bind=False,
+                        on_next=False, on_next_args=()):
+    return {'formatter': formatter,
+            'data_type': data_type,
+            'bind': bind,
+            'on_next': on_next,
+            'on_next_args': on_next_args,
+            'order': max([c['order'] for c in existing_configs],
+                         default=-1) + 1,
+            }
+
+
+def flame(flame_key=None, formatter=_default_flame_formatter, data_type='html', bind=False, on_next=False,
+          on_next_args=(), decorator_name='flame'):
+    def decorator(func):
+        if type(func) is PromiseProxy:
+            raise Exception(f"@{decorator_name} must be applied to a function (after @app.task) on {func.__name__}")
+
+        undecorated = undecorate_func(func)
+        if not hasattr(undecorated, 'flame_data_configs'):
+            undecorated.flame_data_configs = OrderedDict()
+        undecorated.flame_data_configs[flame_key] = create_flame_config(undecorated.flame_data_configs.values(),
+                                                                        formatter, data_type, bind, on_next,
+                                                                        on_next_args)
+        return func
+
+    return decorator
 
 
 class FireXTask(Task):
@@ -123,6 +224,12 @@ class FireXTask(Task):
     def initialize_context(self):
         self.context.enqueued_children = {}
         self.context.bog = None
+
+        # Favour @app.task(flame=...) driven-style when present over @flame() annotation style.
+        # Flame configs need to be on self.context b/c they write to flame_data_configs[k]['on_next'] for collapse ops.
+        # Might make more sense to rework that to avoid flame data on context.
+        self.context.flame_configs = self.get_task_flame_configs() or deepcopy(getattr(self.undecorated,
+                                                                                       "flame_data_configs", {}))
 
     def get_module_file_location(self):
         return sys.modules[self.__module__].__file__
@@ -231,6 +338,7 @@ class FireXTask(Task):
                             code_filepath=self.code_filepath,
                             retries=self.request.retries,
                             **extra_events)
+            self.send_firex_data(self.bag)
 
         # Print the pre-call header
         self.print_precall_header(bound_args, default_bound_args)
@@ -270,6 +378,7 @@ class FireXTask(Task):
         # Send a custom task-succeeded event with the results
         if not self.request.called_directly:
             self.send_event('task-results', firex_result=convert_to_serializable(results), **extra_events)
+            self.send_firex_data(self.bag)
 
     def print_precall_header(self, bound_args, default_bound_args):
         n = 1
@@ -694,6 +803,85 @@ class FireXTask(Task):
 
     def start_time(self):
         return get_task_start_time(self.request.id, self.backend)
+
+    def get_task_flame_configs(self) -> OrderedDict:
+        flame_value = get_attr_unwrapped(self, 'flame', None)
+        task_flame_config = OrderedDict()
+        if flame_value:
+            if isinstance(flame_value, str):
+                # Config is only a key name, fill in default config.
+                task_flame_config = OrderedDict([(flame_value, create_flame_config([]))])
+            elif isinstance(flame_value, list):
+                # Config is a list of key names, each of which should get a default config.
+                # Create list of default configs so that their order is set properly.
+                default_flame_configs = []
+                for _ in flame_value:
+                    default_flame_configs.append(create_flame_config(default_flame_configs))
+                # associated ordered default configs with key names from flame decorator.
+                task_flame_config = OrderedDict([(key_name, default_flame_configs[i])
+                                                 for i, key_name in enumerate(flame_value)])
+            elif isinstance(flame_value, dict):
+                task_flame_config = OrderedDict(flame_value)
+
+        return task_flame_config
+
+    def send_firex_data(self, data):
+        if self.request.called_directly:
+            return
+
+        if getattr(self.context, 'flame_configs', False):
+            def safe_format(formatter, fromatter_args, formatter_kwargs):
+                try:
+                    return formatter(*fromatter_args, **formatter_kwargs)
+                except Exception as e:
+                    logger.error(e)
+                    return None
+
+            formatted_data = {}
+            for flame_key, flame_config in self.context.flame_configs.items():
+                # Data can be sent either because it is supplied in the input or if data was registered to be sent
+                # 'on_next' during flame_data_config registration.
+                if flame_key in data \
+                        or flame_config['on_next'] \
+                        or flame_key is None:
+                    formatter_kwargs = {'task': self} if flame_config['bind'] else {}
+                    if flame_key in data:
+                        formatter_args = [data[flame_key]]
+                    elif flame_config['on_next']:
+                        formatter_args = flame_config['on_next_args']
+                    elif flame_key is None:
+                        # None means execute formatter with all data.
+                        formatter_args = [data]
+                    else:
+                        formatter_args = []
+
+                    format_result = safe_format(flame_config['formatter'], formatter_args, formatter_kwargs)
+                    if format_result is not None:
+                        formatted_data[flame_key] = {
+                            'value': format_result,
+                            'type': flame_config['data_type'],
+                            'order': flame_config['order'],
+                        }
+
+            if formatted_data:
+                self.send_firex_event_raw({'flame_data': formatted_data})
+                sent_on_next_keys = [k for k, v in self.context.flame_configs.items()
+                                     if v['on_next'] and k in formatted_data]
+                for k in sent_on_next_keys:
+                    self.context.flame_configs[k]['on_next'] = False
+
+    def send_firex_event_raw(self, data):
+        self.send_event('task-send-flame', **data)
+
+    def update_firex_data(self, **kwargs):
+        self.send_firex_data(kwargs)
+
+    def send_firex_html(self, **kwargs):
+        formatted_data = {flame_key: {'value': html_data,
+                                      'type': 'html',
+                                      'order': time.time()}
+                          for flame_key, html_data in kwargs.items()}
+        self.send_firex_event_raw({'flame_data': formatted_data})
 
 
 def undecorate_func(func):
