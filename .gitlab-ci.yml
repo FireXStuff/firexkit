@@ -77,7 +77,7 @@ update-docs:
     - gcloud auth activate-service-account --key-file $GOOGLE_APPLICATION_CREDENTIALS 
     - gsutil -m rsync -r html gs://www.firexkit.com
   needs:
-    - build-docs
     - upload-pkg
   only:
     - tags
+
