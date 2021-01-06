@@ -78,6 +78,7 @@ update-docs:
     - gsutil -m rsync -r html gs://www.firexkit.com
   needs:
     - upload-pkg
+    - build-docs
   only:
     - tags
 
