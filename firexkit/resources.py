@@ -19,7 +19,7 @@ def get_firex_logo_filepath(resources_dir, relative_from=None):
 
 
 def get_packaged_install_config_path(rel_install_config_path):
-    return os.path.join(os.path.dirname(__file__), 'resources', rel_install_config_path)
+    return os.path.join(os.path.dirname(__file__), 'install_resources', rel_install_config_path)
 
 
 def get_cloud_ci_install_config_path():
