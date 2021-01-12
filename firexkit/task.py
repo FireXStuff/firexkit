@@ -337,6 +337,7 @@ class FireXTask(Task):
                             from_plugin=self.from_plugin,
                             code_filepath=self.code_filepath,
                             retries=self.request.retries,
+                            task_parent_id=self.request.parent_id,
                             **extra_events)
             self.send_firex_data(self.bag)
 
