@@ -614,6 +614,8 @@ class FireXTask(Task):
 
     def wait_for_specific_children(self, child_results, **kwargs: dict):
         """Wait for the explicitly provided child_results to run and complete"""
+        if isinstance(child_results, AsyncResult):
+            child_results = [child_results]
         if child_results:
             logger.debug('Waiting for enqueued children: %r' % get_tasks_names_from_results(child_results))
             try:
