@@ -27,7 +27,8 @@ from firexkit.argument_conversion import ConverterRegister
 from firexkit.result import get_tasks_names_from_results, wait_for_any_results, \
     RETURN_KEYS_KEY, wait_on_async_results_and_maybe_raise, get_result_logging_name, ChainInterruptedException, \
     ChainRevokedException
-from firexkit.resources import get_firex_css_filepath, get_firex_logo_filepath, JINJA_ENV
+from firexkit.resources import get_firex_css_filepath, get_firex_logo_filepath
+from firexkit.firexkit_common import JINJA_ENV
 import time
 
 logger = get_task_logger(__name__)
@@ -730,7 +731,7 @@ class FireXTask(Task):
 
     @property
     def task_log_url(self):
-        if self.app.conf.install_config and self.app.conf.install_config.has_viewer():
+        if self.app.conf.install_config.has_viewer():
             # FIXME: there must be a more direct way of getting this relative path.
             log_entry_rel_run_root = os.path.relpath(self.task_logfile, self.app.conf.logs_dir)
             return self.app.conf.install_config.get_log_entry_url(log_entry_rel_run_root)

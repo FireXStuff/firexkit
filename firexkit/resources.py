@@ -1,7 +1,5 @@
 import os
 
-from jinja2 import Environment, FileSystemLoader
-
 
 def get_resource_filepath(resources_dir, filename, relative_from=None):
     filepath = os.path.join(resources_dir, filename)
@@ -24,8 +22,3 @@ def get_packaged_install_config_path(rel_install_config_path):
 
 def get_cloud_ci_install_config_path():
     return get_packaged_install_config_path('cloud-ci-install-configs.json')
-
-
-JINJA_ENV = Environment(
-    loader=FileSystemLoader(os.path.join(os.path.dirname(__file__), 'templates'))
-)
