@@ -661,7 +661,7 @@ class FireXTask(Task):
                     self._update_child_state(child_result, self._UNBLOCKED)
         return child_result
 
-    def enqueue_in_parallel(self, chains, max_parallel_chains=15, wait_for_completion=True,
+    def enqueue_in_parallel(self, chains, max_parallel_chains=10, wait_for_completion=True,
                             raise_exception_on_failure=False):
         """ This method executes the provided list of Signatures/Chains in parallel
         and returns the associated list of "async_result" objects.
