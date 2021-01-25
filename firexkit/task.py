@@ -447,7 +447,11 @@ class FireXTask(Task):
             finally:
                 self.remove_task_logfile_handler()
 
-    def handle_exception(self, e, logging_extra=None, raise_exception=True):
+    def handle_exception(self, e, logging_extra: dict=None, raise_exception=True):
+        extra = {'span_class': 'exception'}
+        if logging_extra:
+            extra.update(logging_extra)
+
         if isinstance(e, ChainInterruptedException) or isinstance(e, ChainRevokedException):
             try:
                 exception_cause_uuid = e.task_id
@@ -460,7 +464,7 @@ class FireXTask(Task):
         exception_string = str(e)
         if exception_string:
             mssg += f': {exception_string}'
-        logger.error(mssg, exc_info=e, extra=logging_extra)
+        logger.error(mssg, exc_info=e, extra=extra)
         if raise_exception:
             raise e
 
