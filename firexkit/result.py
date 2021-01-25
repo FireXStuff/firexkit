@@ -540,3 +540,31 @@ def first_non_chain_interrupted_exception(ex):
         e = e.__cause__
     return e
 
+
+def extract_and_filter(*args,
+                       extract_from_children: bool = True,
+                       extract_task_returns_only: bool = False,
+                       extract_from_parents: bool = False,
+                       **kwargs) -> Union[tuple, dict]:
+    """Wrapper for :func:`firexkit.result.get_results` and `firexkit.result.get_results_upto_parent`
+    that defaults `extract_from_children` to :const:`True` and `extract_task_returns_only` to :const:`False`
+
+    This wrapper only exists for legacy reasons since older chains might be relying on these old defaults for
+    `extract_from_children` and `extract_task_returns_only`.
+
+    Use :meth:`firexkit.result.get_results` or `firexkit.result.get_results_upto_parent` instead.
+
+    See Also:
+        firexkit.result.get_results
+    """
+
+    if extract_from_parents:
+        return get_results_upto_parent(*args,
+                                       return_keys_only=extract_task_returns_only,
+                                       merge_children_results=extract_from_children,
+                                       **kwargs)
+    else:
+        return get_results(*args,
+                           return_keys_only=extract_task_returns_only,
+                           merge_children_results=extract_from_children,
+                           **kwargs)

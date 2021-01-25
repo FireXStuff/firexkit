@@ -6,7 +6,7 @@ import os
 import textwrap
 from collections import OrderedDict
 import inspect
-from typing import Callable, Iterable, Optional
+from typing import Callable, Iterable, Optional, Union
 from urllib.parse import urljoin
 from copy import deepcopy
 
@@ -26,7 +26,7 @@ from firexkit.bag_of_goodies import BagOfGoodies
 from firexkit.argument_conversion import ConverterRegister
 from firexkit.result import get_tasks_names_from_results, wait_for_any_results, \
     RETURN_KEYS_KEY, wait_on_async_results_and_maybe_raise, get_result_logging_name, ChainInterruptedException, \
-    ChainRevokedException
+    ChainRevokedException, extract_and_filter
 from firexkit.resources import get_firex_css_filepath, get_firex_logo_filepath
 from firexkit.firexkit_common import JINJA_ENV
 import time
@@ -661,7 +661,146 @@ class FireXTask(Task):
                     self._update_child_state(child_result, self._UNBLOCKED)
         return child_result
 
-    def enqueue_in_parallel(self, chains, max_parallel_chains=10, wait_for_completion=True,
+    def enqueue_child_and_get_results(self,
+                                      *args,
+                                      return_keys: Union[str, tuple] = (),
+                                      return_keys_only: bool = True,
+                                      merge_children_results: bool = False,
+                                      extract_from_parents: bool = True,
+                                      **kwargs) -> Union[tuple, dict]:
+        """Apply a ``chain``, and extract results from it.
+
+        This is a better version of `enqueue_child_and_extract` where the defaults for
+        `extract_from_children` and `extract_task_returns_only` defaults are more intuitive.
+        Additionally, extract_from_parents defaults to True in this API.
+
+        Note:
+            This is shorthand for :meth:`enqueue_child` followed with :meth:`get_results`.
+
+        Args:
+            *args: Tuple of args required by  :meth:`enqueue_child`
+            return_keys: A single return key string, or a tuple of keys to extract from the task results.
+                The default value of :const:`None` will return a dictionary of key/value pairs for the returned results.
+            return_keys_only: If set, only return results for keys specified by the tasks' `@returns`
+                decorator or :attr:`returns` attribute, otherwise, returns will include key/value pairs from the BoG.
+            merge_children_results: If set, extract and merge results from the children tasks as well.
+            extract_from_parents: If set, will consider all results returned from tasks of the given chain (parents
+                of the last task). Else will consider only results returned by the last task of the chain.
+            **kwargs: Other options to :meth:`enqueue_child`
+
+        Returns:
+            The returns of `get_results`.
+
+        See Also:
+            get_results
+        """
+
+        return self.enqueue_child_and_extract(*args,
+                                              return_keys=return_keys,
+                                              extract_from_children=merge_children_results,
+                                              extract_task_returns_only=return_keys_only,
+                                              extract_from_parents=extract_from_parents,
+                                              **kwargs)
+
+    def enqueue_child_and_extract(self,
+                                  *args,
+                                  return_keys: Union[str, tuple] = (),
+                                  extract_from_children: bool = True,
+                                  extract_task_returns_only: bool = False,
+                                  extract_from_parents: bool = False,
+                                  **kwargs) -> Union[tuple, dict]:
+        """Apply a ``chain``, and extract results from it.
+
+        Note:
+            This is shorthand for :meth:`enqueue_child` followed with :meth:`extract_and_filter`.
+
+        Args:
+            *args: Tuple of args required by  :meth:`enqueue_child`
+            return_keys: A single return key string, or a tuple of keys to extract from the task results.
+                The default value of :const:`None` will return a dictionary of key/value pairs for the returned results.
+            extract_from_children: If set, extract and merge results from the children tasks as well.
+            extract_task_returns_only: If set, only return results for keys specified by the tasks' `@returns`
+                decorator or :attr:`returns` attribute, otherwise, returns will include key/value pairs from the BoG.
+            extract_from_parents: If set, will consider all results returned from tasks of the given chain (parents
+                of the last task). Else will consider only results returned by the last task of the chain.
+            **kwargs: Other options to :meth:`enqueue_child`
+
+        Returns:
+            The returns of `extract_and_filter`.
+
+        See Also:
+            extract_and_filter
+            enqueue_child_and_get_results
+        """
+
+        if kwargs.pop('enqueue_once_key', None):
+            raise ValueError('Invalid argument. Use the enqueue_child_once_and_extract() api.')
+
+        return self._enqueue_child_and_extract(*args,
+                                               return_keys=return_keys,
+                                               extract_from_children=extract_from_children,
+                                               extract_task_returns_only=extract_task_returns_only,
+                                               enqueue_once_key='',
+                                               extract_from_parents=extract_from_parents,
+                                               **kwargs)
+
+    def _enqueue_child_and_extract(self,
+                                   *args,
+                                   return_keys: Union[str, tuple] = (),
+                                   extract_from_children: bool = True,
+                                   extract_task_returns_only: bool = False,
+                                   enqueue_once_key: str = '',
+                                   extract_from_parents: bool = False,
+                                   **kwargs) -> Union[tuple, dict]:
+        """Apply a ``chain``, and extract results from it.
+
+        Note:
+            This is shorthand for :meth:`enqueue_child` followed with :meth:`extract_and_filter`.
+
+        Args:
+            *args: Tuple of args required by  :meth:`enqueue_child`
+            return_keys: A single return key string, or a tuple of keys to extract from the task results.
+                The default value of :const:`None` will return a dictionary of key/value pairs for the returned results.
+            extract_from_children: If set, extract and merge results from the children tasks as well.
+            extract_task_returns_only: If set, only return results for keys specified by the tasks' `@returns`
+                decorator or :attr:`returns` attribute, otherwise, returns will include key/value pairs from the BoG.
+            enqueue_once_key: a string key, which, if set will be used to check if this task needs to be run,
+                Use the enqueue_child_once_and_extract wrapper to set this. Should be unique per FireX run.
+            extract_from_parents: If set, will consider all results returned from tasks of the given chain (parents
+                of the last task). Else will consider only results returned by the last task of the chain.
+                NOTE: Will not work on reconstituted AsyncResult objects, such as those sometimes created by
+                the enqueue_once API.
+            **kwargs: Other options to :meth:`enqueue_child`
+
+        Returns:
+            The returns of `extract_and_filter`.
+
+        See Also:
+            extract_and_filter
+        """
+
+        # Remove block from kwargs if it exists
+        _block = kwargs.pop('block', True)
+        if not _block:
+            logger.warning(f'enqueue_child_and_extract ignored block={_block}, '
+                           'since it needs to block in order to extract results')
+
+        if not enqueue_once_key:
+            result_promise = self.enqueue_child(*args, block=True, **kwargs)
+        else:
+            # Need to make sure task with this key is run only once
+            result_promise = self._enqueue_child_once(*args,
+                                                      enqueue_once_key=enqueue_once_key,
+                                                      block=True,
+                                                      **kwargs)
+
+        return extract_and_filter(result_promise,
+                                  return_keys,
+                                  extract_from_children=extract_from_children,
+                                  extract_task_returns_only=extract_task_returns_only,
+                                  extract_from_parents=extract_from_parents)
+
+    def enqueue_in_parallel(self, chains, max_parallel_chains=15, wait_for_completion=True,
                             raise_exception_on_failure=False):
         """ This method executes the provided list of Signatures/Chains in parallel
         and returns the associated list of "async_result" objects.
