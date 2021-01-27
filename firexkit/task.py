@@ -996,7 +996,7 @@ class FireXTask(Task):
                         formatter_args = [data[flame_key]]
                     elif flame_config['on_next']:
                         formatter_args = flame_config['on_next_args']
-                    elif flame_key is None:
+                    elif flame_key is None or flame_key == '*':
                         # None means execute formatter with all data.
                         formatter_args = [data]
                     else:
