@@ -990,7 +990,7 @@ class FireXTask(Task):
                 # 'on_next' during flame_data_config registration.
                 if flame_key in data \
                         or flame_config['on_next'] \
-                        or flame_key is None:
+                        or (flame_key is None or flame_key == '*'):
                     formatter_kwargs = {'task': self} if flame_config['bind'] else {}
                     if flame_key in data:
                         formatter_args = [data[flame_key]]
