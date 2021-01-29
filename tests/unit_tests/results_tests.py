@@ -3,10 +3,10 @@ from celery import Celery
 from celery.result import AsyncResult
 from celery.states import SUCCESS, FAILURE, REVOKED, STARTED, PENDING
 from contextlib import contextmanager
-
 from firexkit.result import wait_on_async_results, get_task_name_from_result, get_result_logging_name, \
     is_result_ready, WaitLoopCallBack, WaitOnChainTimeoutError, ChainRevokedException, ChainInterruptedException, \
-    get_tasks_names_from_results, MultipleFailuresException, find_unsuccessful_in_chain
+    get_tasks_names_from_results, MultipleFailuresException, find_unsuccessful_in_chain, \
+    monkey_patch_async_result_to_track_instances, teardown_monkey_patch_async_result_to_track_instances
 from firexkit.revoke import RevokedRequests
 
 
@@ -259,7 +259,6 @@ class WaitOnResultsTests(unittest.TestCase):
             wait_on_async_results(results=mock_results[1])
         self.assertTrue(isinstance(context.exception.__cause__, OSError))
 
-
     def test_timeout(self):
         setup_revoke()
         test_app, mock_result = get_mocks()
@@ -326,4 +325,25 @@ class WaitOnResultsTests(unittest.TestCase):
             self.assertEqual(len(multi_failure_exception.failures), 2)
             self.assertTrue(isinstance(multi_failure_exception.failures[0], ChainInterruptedException))
             self.assertTrue(isinstance(multi_failure_exception.failures[1], ChainInterruptedException))
+
+
+class TrackInstancesTests(unittest.TestCase):
+
+    def setUp(self):
+        teardown_monkey_patch_async_result_to_track_instances()
+
+    def tearDown(self):
+        teardown_monkey_patch_async_result_to_track_instances()
+
+    def test_monkey_patch_track(self):
+        monkey_patch_async_result_to_track_instances()
+        ar1 = AsyncResult(id='1')
+        ar2 = AsyncResult(id='2')
+        instances = list(AsyncResult.get_ar_instances())
+        self.assertEqual([ar1, ar2], instances)
+
+    def test_fail_double_monkey_patch_track(self):
+        monkey_patch_async_result_to_track_instances()
+        self.assertRaises(AssertionError, monkey_patch_async_result_to_track_instances)
+
 

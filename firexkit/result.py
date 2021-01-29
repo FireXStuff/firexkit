@@ -1,10 +1,11 @@
 import copy
 import time
 from collections import namedtuple
+import weakref
 
 import traceback
 from pprint import pformat
-from typing import Union
+from typing import Union, Iterator
 
 from celery import current_app
 from celery.result import AsyncResult
@@ -517,6 +518,48 @@ def get_results_upto_parent(result: AsyncResult, return_keys=(), parent_id: str 
         return extracted_dict
     else:
         return results2tuple(extracted_dict, return_keys)
+
+FIREX_AR_REFS_ATTR = '__firex_ar_refs__'
+
+def is_async_result_monkey_patched_to_track():
+    return hasattr(AsyncResult, FIREX_AR_REFS_ATTR)
+
+
+def teardown_monkey_patch_async_result_to_track_instances():
+
+    if hasattr(AsyncResult, '__orig_init__'):
+        AsyncResult.__init__ = AsyncResult.__orig_init__
+        delattr(AsyncResult, '__orig_init__')
+    try:
+        delattr(AsyncResult, FIREX_AR_REFS_ATTR)
+    except AttributeError:
+        pass
+
+
+def monkey_patch_async_result_to_track_instances():
+    assert not is_async_result_monkey_patched_to_track(), "Cannot monkey patch to track AsyncResults twice."
+
+    AsyncResult.__orig_init__ = AsyncResult.__init__
+    setattr(AsyncResult, FIREX_AR_REFS_ATTR, [])
+
+    def tracking_init(self, *args, **kwargs):
+        getattr(AsyncResult, FIREX_AR_REFS_ATTR).append(weakref.ref(self))
+        AsyncResult.__orig_init__(self, *args, **kwargs)
+
+    def get_ar_instances() -> Iterator[AsyncResult]:
+        for inst_ref in getattr(AsyncResult, FIREX_AR_REFS_ATTR):
+            inst = inst_ref()
+            if inst is not None:
+                yield inst
+
+    AsyncResult.__init__ = tracking_init
+    AsyncResult.get_ar_instances = get_ar_instances
+
+
+def disable_all_async_results():
+    if is_async_result_monkey_patched_to_track():
+        for async_result in AsyncResult.get_ar_instances():
+            async_result.backend = None
 
 
 def disable_async_result(result: AsyncResult):
