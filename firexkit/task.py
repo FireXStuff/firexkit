@@ -94,27 +94,29 @@ def create_collapse_ops(flex_collapse_ops_spec):
 def expand_self_op():
     return {'operation': 'expand', 'targets': ['self']}
 
+FLAME_COLLAPSE_KEY = '_default_display'
+
+def flame_collapse_formatter(ops, task):
+    filled_ops = []
+    for op in ops:
+        if 'targets' not in op or not isinstance(op['targets'], list):
+            # Ignore malformed operations.
+            continue
+        filled_op = {
+            # defaults.
+            'relative_to_nodes': {'type': 'task_uuid', 'value': task.request.id},
+            'source_node': {'type': 'task_uuid', 'value': task.request.id},
+            'operation': 'collapse',
+        }
+        filled_op.update(op)
+        filled_ops.append(filled_op)
+    return filled_ops
+
 
 def flame_collapse(flex_collapse_ops):
-    def formatter(ops, task):
-        filled_ops = []
-        for op in ops:
-            if 'targets' not in op or not isinstance(op['targets'], list):
-                # Ignore malformed operations.
-                continue
-            filled_op = {
-                # defaults.
-                'relative_to_nodes': {'type': 'task_uuid', 'value': task.request.id},
-                'source_node': {'type': 'task_uuid', 'value': task.request.id},
-                'operation': 'collapse',
-            }
-            filled_op.update(op)
-            filled_ops.append(filled_op)
-        return filled_ops
-
     static_ops = create_collapse_ops(flex_collapse_ops)
-    return flame('_default_display', formatter, data_type='object', bind=True, on_next=True, on_next_args=[static_ops],
-                 decorator_name=flame_collapse.__name__)
+    return flame(FLAME_COLLAPSE_KEY, flame_collapse_formatter, data_type='object', bind=True, on_next=True,
+                 on_next_args=[static_ops], decorator_name=flame_collapse.__name__)
 
 
 def _default_flame_formatter(data):
@@ -1028,6 +1030,23 @@ class FireXTask(Task):
                                       'type': 'html',
                                       'order': time.time()}
                           for flame_key, html_data in kwargs.items()}
+        self.send_firex_event_raw({'flame_data': formatted_data})
+
+    def send_display_collapse(self, task_uuid: str = None):
+        """
+            Collapse the current task (default), or collapse the task with the supplied UUID.
+        """
+        if task_uuid is None:
+            task_uuid = self.request.id
+        formatted_data = {
+            FLAME_COLLAPSE_KEY: {
+                'value': flame_collapse_formatter([{
+                    'targets': ['self'],
+                    'relative_to_nodes': {'type': 'task_uuid', 'value': task_uuid},
+                }], self),
+                'type': 'object',
+                'order': time.time()}
+        }
         self.send_firex_event_raw({'flame_data': formatted_data})
 
 
