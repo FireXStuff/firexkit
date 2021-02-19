@@ -21,3 +21,14 @@ def get_link(url, text=None, html_class=None, title_attribute=None, attrs=None, 
         attrs=attrs,
         other_elements=other_elements
     )
+
+
+class ChangeUmask(object):
+    def __init__(self, new_umask):
+        self.new_umask = new_umask
+
+    def __enter__(self):
+        self.original_umask = os.umask(self.new_umask)
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        os.umask(self.original_umask)
