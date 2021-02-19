@@ -30,6 +30,7 @@ from firexkit.result import get_tasks_names_from_results, wait_for_any_results, 
 from firexkit.resources import get_firex_css_filepath, get_firex_logo_filepath
 from firexkit.firexkit_common import JINJA_ENV
 import time
+from firexkit.permissions import DEFAULT_CHMOD_MODE
 
 logger = get_task_logger(__name__)
 
@@ -866,7 +867,7 @@ class FireXTask(Task):
         else:
             _task_logging_dirpath = self.get_task_logging_dirpath(self.file_logging_dirpath, self.request.hostname)
             if not os.path.exists(_task_logging_dirpath):
-                os.makedirs(_task_logging_dirpath, mode=0o777, exist_ok=True)
+                os.makedirs(_task_logging_dirpath, mode=DEFAULT_CHMOD_MODE, exist_ok=True)
             self._task_logging_dirpath = _task_logging_dirpath
             return self._task_logging_dirpath
 
