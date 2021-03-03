@@ -6,7 +6,8 @@ from contextlib import contextmanager
 from firexkit.result import wait_on_async_results, get_task_name_from_result, get_result_logging_name, \
     is_result_ready, WaitLoopCallBack, WaitOnChainTimeoutError, ChainRevokedException, ChainInterruptedException, \
     get_tasks_names_from_results, MultipleFailuresException, find_unsuccessful_in_chain, \
-    monkey_patch_async_result_to_track_instances, teardown_monkey_patch_async_result_to_track_instances
+    monkey_patch_async_result_to_track_instances, teardown_monkey_patch_async_result_to_track_instances, \
+    last_causing_chain_interrupted_exception, first_non_chain_interrupted_exception
 from firexkit.revoke import RevokedRequests
 
 
@@ -346,4 +347,42 @@ class TrackInstancesTests(unittest.TestCase):
         monkey_patch_async_result_to_track_instances()
         self.assertRaises(AssertionError, monkey_patch_async_result_to_track_instances)
 
+
+class WalkExceptionTests(unittest.TestCase):
+
+    def test_last_chain_interrupted(self):
+
+        e1 = Exception('exception1')
+        try:
+            raise ChainInterruptedException('exception2') from e1
+        except ChainInterruptedException as e:
+            e2 = e
+
+        try:
+            raise ChainInterruptedException('exception3') from e2
+        except ChainInterruptedException as e:
+            e3 = e
+
+        try:
+            raise ChainInterruptedException('exception3') from e3
+        except ChainInterruptedException as e:
+            e4 = e
+
+        last_cause = last_causing_chain_interrupted_exception(e4)
+        self.assertIs(e2, last_cause)
+
+    def test_fail_double_monkey_patch_track(self):
+        e1 = Exception('exception1')
+        try:
+            raise ChainInterruptedException('exception2') from e1
+        except ChainInterruptedException as e:
+            e2 = e
+
+        try:
+            raise ChainInterruptedException('exception3') from e2
+        except ChainInterruptedException as e:
+            e3 = e
+
+        non_chain_interrupted = first_non_chain_interrupted_exception(e3)
+        self.assertIs(e1, non_chain_interrupted)
 

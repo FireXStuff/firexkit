@@ -26,7 +26,7 @@ from firexkit.bag_of_goodies import BagOfGoodies
 from firexkit.argument_conversion import ConverterRegister
 from firexkit.result import get_tasks_names_from_results, wait_for_any_results, \
     RETURN_KEYS_KEY, wait_on_async_results_and_maybe_raise, get_result_logging_name, ChainInterruptedException, \
-    ChainRevokedException, extract_and_filter
+    ChainRevokedException, extract_and_filter, last_causing_chain_interrupted_exception
 from firexkit.resources import get_firex_css_filepath, get_firex_logo_filepath
 from firexkit.firexkit_common import JINJA_ENV
 import time
@@ -456,7 +456,8 @@ class FireXTask(Task):
 
         if isinstance(e, ChainInterruptedException) or isinstance(e, ChainRevokedException):
             try:
-                exception_cause_uuid = e.task_id
+                causing_e = last_causing_chain_interrupted_exception(e)
+                exception_cause_uuid = causing_e.task_id
             except AttributeError:
                 pass
             else:

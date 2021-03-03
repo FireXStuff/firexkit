@@ -583,6 +583,15 @@ def first_non_chain_interrupted_exception(ex):
         e = e.__cause__
     return e
 
+#
+# Returns the last exception in the cause chain that is a "ChainInterruptedException"
+#
+def last_causing_chain_interrupted_exception(ex):
+    e = ex
+    while e.__cause__ is not None and isinstance(e.__cause__, ChainInterruptedException):
+        e = e.__cause__
+    return e
+
 
 def extract_and_filter(*args,
                        extract_from_children: bool = True,
