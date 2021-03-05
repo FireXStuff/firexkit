@@ -16,7 +16,7 @@ setup(name='firexkit',
       },
       zip_safe=True,
       install_requires=[
-        "vine==1.3.0",
-        "celery==4.3.0",
+        #"vine==1.3.0",
+        #"celery==4.3.0",
         "jinja2",
       ],)
