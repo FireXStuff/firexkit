@@ -253,51 +253,55 @@ def wait_on_async_results(results,
     if not results:
         return
 
-    max_trials = max_wait/sleep_between_iterations if max_wait else None
-    trials = 0
-
     if isinstance(results, AsyncResult):
         results = [results]
 
+    max_sleep = sleep_between_iterations * 20  # Somewhat arbitrary
     failures = []
+    start_time = time.monotonic()
+    last_callback_time = {callback.func: start_time for callback in callbacks}
     for result in results:
         logging_name = get_result_logging_name(result)
         if log_msg:
             logger.debug('-> Waiting for %s to complete' % logging_name)
+
         try:
-            worker_failures = 0
+            task_worker_failures = 0
+            last_dead_task_worker_check = time.monotonic()
             while not is_result_ready(result):
                 if RevokedRequests.instance().is_revoked(result):
                     break
-
                 _check_for_traceback_in_parents(result, timeout=30)
 
-                if max_trials and trials >= max_trials:
+                current_time = time.monotonic()
+                if max_wait and (current_time - start_time) > max_wait:
                     logging_name = get_result_logging_name(result)
                     raise WaitOnChainTimeoutError('Result ID %s was not ready in %d seconds' % (logging_name, max_wait))
 
-                time.sleep(sleep_between_iterations)
-
-                trials += 1
-
                 # callbacks
                 for callback in callbacks:
-                    if trials % (callback.frequency / sleep_between_iterations) == 0:
+                    if (current_time - last_callback_time[callback.func]) > callback.frequency:
                         callback.func(**callback.kwargs)
+                        last_callback_time[callback.func] = current_time
 
                 # Check for dead workers
                 if check_task_worker_frequency and fail_on_worker_failures and \
-                        round(trials % (check_task_worker_frequency / sleep_between_iterations)) == 0:
+                        (current_time - last_dead_task_worker_check) > check_task_worker_frequency:
                     alive = _is_worker_alive(result=result)
+                    last_dead_task_worker_check = current_time
                     if not alive:
-                        worker_failures += 1
+                        task_worker_failures += 1
                         logger.warning(f'Task {get_task_name_from_result(result)} appears to be a zombie.'
-                                       f' Failures: {worker_failures}')
-                        if worker_failures >= fail_on_worker_failures:
+                                       f' Failures: {task_worker_failures}')
+                        if task_worker_failures >= fail_on_worker_failures:
                             raise ChainInterruptedByZombieTaskException(task_id=str(result),
                                                                         task_name=get_task_name_from_result(result))
                     else:
-                        worker_failures = 0
+                        task_worker_failures = 0
+
+                time.sleep(sleep_between_iterations)
+                sleep_between_iterations = sleep_between_iterations * 1.01 \
+                    if sleep_between_iterations*1.01 < max_sleep else max_sleep  # Exponential backoff
 
             if result.state == REVOKED:
                 raise ChainRevokedException(task_id=str(result),
