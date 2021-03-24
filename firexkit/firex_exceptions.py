@@ -21,7 +21,7 @@ class FireXCalledProcessError(subprocess.CalledProcessError):
 class FireXInactivityTimeoutExpired(subprocess.TimeoutExpired):
     # When instantiating the exception, make sure you provide the necessary positional args as args, not kwargs.
     def __str__(self):
-        mssg = ("Command '%s' timed out after %d seconds. " % (self.cmd, self.timeout))
+        mssg = ("Command '%s' timed out because it did not generate any console output for more than %u seconds." % (self.cmd, self.timeout))
         if self.output:
             mssg += shorten_long_output(self.output)
         return mssg
