@@ -246,8 +246,8 @@ def wait_on_async_results(results,
                           max_wait=None,
                           callbacks: [WaitLoopCallBack]=tuple(),
                           sleep_between_iterations=0.05,
-                          check_task_worker_frequency=900,
-                          fail_on_worker_failures=3,
+                          check_task_worker_frequency=600,
+                          fail_on_worker_failures=9,
                           log_msg=True
                           ):
     if not results:
