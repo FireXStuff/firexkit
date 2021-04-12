@@ -10,10 +10,10 @@ from typing import Union, Iterator
 from celery import current_app
 from celery.result import AsyncResult
 from celery.signals import before_task_publish, task_prerun
-from celery.states import FAILURE, REVOKED, PENDING, STARTED, RECEIVED, RETRY
+from celery.states import FAILURE, REVOKED, PENDING, STARTED, RECEIVED, RETRY, SUCCESS
 from celery.utils.log import get_task_logger
 from firexkit.broker import handle_broker_timeout
-from firexkit.inspect import get_task, get_active_queues
+from firexkit.inspect import get_task, get_active_queues, get_active
 from firexkit.revoke import RevokedRequests
 
 RETURN_KEYS_KEY = '__task_return_keys'
@@ -47,11 +47,16 @@ def get_task_name_from_result(result):
 
 
 def get_task_queue_from_result(result):
+    queue = ''
     try:
-        return get_task_info_from_result(result=result, key='queue')
+        while not queue and result:
+            queue = get_task_info_from_result(result=result, key='queue')
+            #  Try to get queue of parent tasks in the same chain, if current item hasn't been scheduled yet
+            result = result.parent
     except AttributeError:
         logger.exception('Task queue info not supported for this broker')
-        return ''
+
+    return queue
 
 
 def get_tasks_names_from_results(results):
@@ -188,11 +193,23 @@ def _is_worker_alive(result: AsyncResult, timeout=None, retry_delay=0.1, retries
                              f' Info: {info}, Hostname: {hostname}')
                 return True
 
-            task_info = get_task(method_args=(result.id,), destination=(hostname,), timeout=10)
+            task_id = result.id
+            task_info = get_task(method_args=(task_id,), destination=(hostname,), timeout=60)
             if task_info and any(task_info.values()):
                 return True
+            else:
+                # Try get_active, since we suspect query_task (the api used by get_task) may be broken sometimes.
+                active_tasks = get_active(destination=(hostname,), timeout=60)
+                task_list = active_tasks.get(hostname) if active_tasks else None
+                if task_list:
+                    for task in task_list:
+                        this_task_id = task.get('id')
+                        if this_task_id == task_id:
+                            return True
 
-            logger.debug(f'Task inspection for {task_name} on {hostname} returned:\n{pformat(task_info)}')
+            logger.debug(f'Task inspection for {task_name} on {hostname} with id '
+                         f'of {task_id} returned:\n{pformat(task_info)}\n'
+                         f'Active tasks:\n{pformat(active_tasks)}')
 
         elif state == PENDING or state == RETRY:
             # Check if task queue is alive
@@ -206,7 +223,7 @@ def _is_worker_alive(result: AsyncResult, timeout=None, retry_delay=0.1, retries
                 logger.debug(f'Queue "{task_queue}" for {task_name} not seen yet; assuming task is alive.')
                 return True
 
-            queues = get_active_queues()
+            queues = get_active_queues(timeout=60)
             active_queues = {queue['name'] for node in queues.values() for queue in node} if queues else set()
             if task_queue in active_queues:
                 return True
@@ -214,6 +231,9 @@ def _is_worker_alive(result: AsyncResult, timeout=None, retry_delay=0.1, retries
             logger.debug(f'Active queues inspection for {task_name} on queue {task_queue} returned:\n'
                          f'{pformat(queues)}\n'
                          f'Active queues: {pformat(active_queues)}')
+
+        elif state == SUCCESS:
+            return True  # Timing; possible if task state changed after we waited on it but before we got here
 
         else:
             logger.debug(f'Unknown state ({state} for task {task_name}; assuming task is alive.')
@@ -247,7 +267,7 @@ def wait_on_async_results(results,
                           callbacks: [WaitLoopCallBack]=tuple(),
                           sleep_between_iterations=0.05,
                           check_task_worker_frequency=600,
-                          fail_on_worker_failures=0,  # Note: Zombie detection turned off for now
+                          fail_on_worker_failures=7,
                           log_msg=True
                           ):
     if not results:
