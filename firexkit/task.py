@@ -1139,19 +1139,22 @@ def is_jsonable(obj) -> bool:
         return True
 
 
-def convert_to_serializable(obj, depth=0):
+def convert_to_serializable(obj, max_recursive_depth=10, _depth=0):
+    if hasattr(obj, 'firex_serializable'):
+        return obj.firex_serializable()
+
     if is_jsonable(obj):
         return obj
 
     # recursive reference guard.
-    if depth < 10:
+    if _depth < max_recursive_depth:
         # Full object isn't jsonable, but some contents might be. Try walking the structure to get jsonable parts.
         if isinstance(obj, dict):
-            return {k: convert_to_serializable(v, depth+1) for k, v in obj.items()}
+            return {k: convert_to_serializable(v, max_recursive_depth, _depth+1) for k, v in obj.items()}
 
         # Note that it's important this DOES NOT catch strings, and it won't since strings are jsonable.
         if isinstance(obj, Iterable):
-            return [convert_to_serializable(e, depth+1) for e in obj]
+            return [convert_to_serializable(e, max_recursive_depth, _depth+1) for e in obj]
 
     # Either input isn't walkable (i.e. dict or iterable), or we're too deep in the structure to keep walking.
     return repr(obj)

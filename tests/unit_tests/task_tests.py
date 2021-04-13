@@ -5,8 +5,7 @@ from celery import Celery
 
 from firexkit.argument_conversion import ConverterRegister
 from firexkit.chain import returns
-from firexkit.task import FireXTask, task_prerequisite
-
+from firexkit.task import FireXTask, task_prerequisite, convert_to_serializable
 
 class TaskTests(unittest.TestCase):
 
@@ -388,3 +387,58 @@ class TaskTests(unittest.TestCase):
             r = d.map_args(value, **input_args, **kwargs)
             expected_result = {'arg1': value, **input_args, **{'kwargs': {**kwargs}}}
             self.assertDictEqual(r, expected_result)
+
+
+class ConvertToSerializableTests(unittest.TestCase):
+    d = dict(a=1, b=['2', '3'], c='4', d=dict(d1=5, d2='6'))
+
+    def test_dicts_returned_as_is(self):
+        self.assertDictEqual(convert_to_serializable(self.d), self.d)
+
+    def test_fallback_to_repr(self):
+        repr_str = "Should serialize to this"
+        class someClass:
+            def __repr__(_self):
+                return repr_str
+        self.assertEqual(convert_to_serializable(someClass()), repr_str)
+
+    def test_firex_serializable(self):
+        class someClass:
+            def firex_serializable(_self):
+                return self.d
+            def __repr__(_self):
+                return "Shouldn't serialize to this"
+        self.assertDictEqual(convert_to_serializable(someClass()), self.d)
+
+    def test_some_parts_are_jsonifable(self):
+        class UnJsonfiableClass:
+            pass
+        unjsonfiable = UnJsonfiableClass()
+
+        with self.subTest('Outer data structure is a dict:'):
+            d2 = dict(**self.d, some_unjsonfiable_object=unjsonfiable)
+            expected_result = dict(**self.d, some_unjsonfiable_object=repr(unjsonfiable))
+            self.assertDictEqual(convert_to_serializable(d2), expected_result)
+
+        with self.subTest('Outer data structure is an iterable:'):
+            d2 = [self.d, unjsonfiable]
+            expected_result = [self.d, repr(unjsonfiable)]
+            self.assertListEqual(convert_to_serializable(d2), expected_result)
+
+    def test_max_recusrive_depth(self):
+        class someClass:
+            def firex_serializable(_self):
+                return self.d
+        serializable_obj = someClass()
+        level3 = dict(level3=serializable_obj)
+        level2 = dict(level2=level3)
+        level1 = dict(level1=level2)
+        d2 = [self.d, level1]
+
+        with self.subTest('max_recrusive_depth not reached'):
+            expected_result = [self.d, dict(level1=dict(level2=dict(level3=self.d)))]
+            self.assertListEqual(convert_to_serializable(d2, max_recursive_depth=10), expected_result)
+
+        with self.subTest('max_recrusive_depth reached'):
+            expected_result = [self.d, dict(level1=dict(level2=repr(level3)))]
+            self.assertListEqual(convert_to_serializable(d2, max_recursive_depth=3), expected_result)
