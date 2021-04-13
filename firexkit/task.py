@@ -445,7 +445,7 @@ class FireXTask(Task):
         finally:
             try:
                 if self._lagging_children_strategy is not PendingChildStrategy.Continue:
-                    self.revoke_nonready_children()
+                    self.revoke_pending_children()
             finally:
                 self.remove_task_logfile_handler()
 
@@ -599,10 +599,6 @@ class FireXTask(Task):
     def pending_enqueued_children(self):
         return [child for child, result in self.context.enqueued_children.items() if
                 result.get(self._STATE_KEY) == self._PENDING]
-
-    @property
-    def nonready_enqueued_children(self):
-        return [child for child in self.context.enqueued_children if not child.ready()]
 
     def _add_enqueued_child(self, child_result):
         if child_result not in self.context.enqueued_children:
@@ -833,24 +829,16 @@ class FireXTask(Task):
             self.wait_for_specific_children(promises, raise_exception_on_failure=raise_exception_on_failure)
         return promises
 
-    def revoke_nonready_children(self, **kwargs):
-        nonready_children = self.nonready_enqueued_children
-        if nonready_children:
-            logger.info('Nonready children of current task exist.')
-            [self.revoke_child(child_result, **kwargs) for child_result in nonready_children]
+    def revoke_pending_children(self, **kwargs):
+        pending_children = self.pending_enqueued_children
+        if pending_children:
+            logger.info('Pending children of current task exist.')
+            [self.revoke_child(child_result, **kwargs) for child_result in pending_children]
 
-    def revoke_child(self, result: AsyncResult, terminate=True, wait=False, timeout=None, **kwargs):
+    def revoke_child(self, result: AsyncResult, **kwargs):
         logger.debug('Revoking child %s' % get_result_logging_name(result))
-        revoke_recursively(result, terminate=terminate, wait=wait, timeout=timeout, **kwargs)
+        revoke_recursively(result, **kwargs)
         self._update_child_state(result, self._UNBLOCKED)
-        while result.parent:
-            # Walk up the chain, since nobody is waiting on those tasks explicitly.
-            result = result.parent
-            if not result.ready():
-                name = get_result_logging_name(result)
-                logger.debug(f'Revoking parent {name}')
-                result.revoke(terminate=terminate, wait=wait, timeout=timeout)
-                logger.info(f'Revoked {name}')
 
     @property
     def root_logger(self):
