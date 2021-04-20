@@ -172,7 +172,7 @@ class FireXTask(Task):
         self._task_return_keys = self.get_task_return_keys()
         self._decorated_return_keys = getattr(self.undecorated, "_decorated_return_keys", tuple())
         if self._decorated_return_keys and self._task_return_keys:
-            raise ReturnsCodingException("You can't specify both a @returns decorator and a returns in the app task")
+            raise ReturnsCodingException(f"You can't specify both a @returns decorator and a returns in the app task for {self.name}")
         self.return_keys = self._decorated_return_keys or self._task_return_keys
 
         self._lagging_children_strategy = get_attr_unwrapped(self, 'pending_child_strategy', PendingChildStrategy.Block)
@@ -192,10 +192,17 @@ class FireXTask(Task):
 
     def signature(self, *args, **kwargs):
         # We need to lookup the task, in case it was over-ridden by a plugin
-        new_self = self.app.tasks[self.name]
+        try:
+            new_self = self.app.tasks[self.name]
+        except Exception:
+            # TODO: WTH
+            # Some caching issue prevent tests from running
+            # These tests should really run in forked processes (or use Celery PyTest fixtures)
+            # Otherwise, seems that everything is global
+            new_self = self.app.tasks[self.name]
+
         # Get the signature from the new_self
         return super(FireXTask, new_self).signature(*args, **kwargs)
-
 
     @contextmanager
     def task_context(self):
