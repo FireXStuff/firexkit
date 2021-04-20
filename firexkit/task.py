@@ -189,6 +189,14 @@ class FireXTask(Task):
 
         self._from_plugin = False
 
+
+    def signature(self, *args, **kwargs):
+        # We need to lookup the task, in case it was over-ridden by a plugin
+        new_self = self.app.tasks[self.name]
+        # Get the signature from the new_self
+        return super(FireXTask, new_self).signature(*args, **kwargs)
+
+
     @contextmanager
     def task_context(self):
         try:
