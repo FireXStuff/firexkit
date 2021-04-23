@@ -5,12 +5,21 @@ from celery import Celery
 
 from firexkit.argument_conversion import ConverterRegister
 from firexkit.chain import returns
-from firexkit.task import FireXTask, task_prerequisite, convert_to_serializable
+from firexkit.task import FireXTask, task_prerequisite, convert_to_serializable, IllegalTaskNameException, \
+    REPLACEMENT_TASK_NAME_POSTFIX
 
 class TaskTests(unittest.TestCase):
 
     def test_instantiation(self):
         from celery.utils.threads import LocalStack
+
+        with self.subTest("Name can't end with _orig"):
+            # noinspection PyAbstractClass
+            class TestTask(FireXTask):
+                name = self.__module__ + "." + self.__class__.__name__ + "." \
+                       + f"TestClass{REPLACEMENT_TASK_NAME_POSTFIX}"
+            with self.assertRaises(IllegalTaskNameException):
+                test_obj = TestTask()
 
         with self.subTest("Without overrides"):
             # Make sure you can instantiate without the need for the pre and post overrides
@@ -63,6 +72,7 @@ class TaskTests(unittest.TestCase):
             test_obj.request_stack = LocalStack()  # simulate binding
             with self.assertRaises(NotImplementedError):
                 test_obj()
+
 
     def test_task_argument_conversion(self):
         from firexkit.argument_conversion import ConverterRegister

@@ -31,6 +31,8 @@ from firexkit.resources import get_firex_css_filepath, get_firex_logo_filepath
 from firexkit.firexkit_common import JINJA_ENV
 import time
 
+REPLACEMENT_TASK_NAME_POSTFIX = '_orig'
+
 logger = get_task_logger(__name__)
 
 
@@ -54,6 +56,10 @@ class ReturnsCodingException(Exception):
 
 
 class DyanmicReturnsNotADict(Exception):
+    pass
+
+
+class IllegalTaskNameException(Exception):
     pass
 
 
@@ -167,6 +173,11 @@ class FireXTask(Task):
     RETURN_KEYS_KEY = RETURN_KEYS_KEY
 
     def __init__(self):
+
+        check_name_for_override_posfix = getattr(self, 'check_name_for_override_posfix', True)
+        if check_name_for_override_posfix and self.name.endswith(REPLACEMENT_TASK_NAME_POSTFIX):
+            raise IllegalTaskNameException(f'Task names should never end with {REPLACEMENT_TASK_NAME_POSTFIX!r}')
+
         self.undecorated = undecorate(self)
         self.sig = inspect.signature(self.run)
         self._task_return_keys = self.get_task_return_keys()
@@ -200,7 +211,7 @@ class FireXTask(Task):
 
     def apply_async(self, *args, **kwargs):
         original_name = self.name
-        if self.from_plugin and not original_name.endswith('_orig'):
+        if self.from_plugin and not original_name.endswith(REPLACEMENT_TASK_NAME_POSTFIX):
             # If the task is overridden, and is not an intermediate override, then
             # let's use the original name for serialization, in case that
             # override name isn't available in the execution context.
@@ -332,7 +343,7 @@ class FireXTask(Task):
 
     @staticmethod
     def strip_orig_from_name(task_name):
-        return re.sub("(_orig)*$", "", task_name)
+        return re.sub(f"({REPLACEMENT_TASK_NAME_POSTFIX})*$", "", task_name)
 
     @staticmethod
     def get_short_name(task_name):
@@ -353,7 +364,7 @@ class FireXTask(Task):
 
     @property
     def called_as_orig(self):
-        return True if self.name.endswith('_orig') else False
+        return True if self.name.endswith(REPLACEMENT_TASK_NAME_POSTFIX) else False
 
     @abstractmethod
     def pre_task_run(self, extra_events: Optional[dict] = None):
