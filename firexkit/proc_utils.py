@@ -49,6 +49,10 @@ def find_current_user_recent_procs(proc_name, max_age=2 * 24 * 60 * 60, regexstr
             pinfo = proc.as_dict(attrs=['name', 'cmdline', 'pid', 'username'])
         except psutil.NoSuchProcess:
             pass
+        except IndexError as e:
+            # psutil can fail with an IndexError when attempting to inspect some username values, such as nginx
+            # worker processes launched via docker/supodman.
+            logger.warning(f"Failure trying to read process details: {e}")
         else:
             if pinfo['name'] == proc_name:
                 if regex:
