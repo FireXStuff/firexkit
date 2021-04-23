@@ -189,6 +189,15 @@ class FireXTask(Task):
 
         self._from_plugin = False
 
+    @property
+    def root_orig(self):
+        """Return the very original `Task` that this `Task` had overridden.
+        If this task has been overridden multiple times, this will return the very first/original task.
+        Return `self` if the task was not overridden"""
+        if hasattr(self, "orig"):
+            return self.orig.root_orig
+        return self
+
     def apply_async(self, *args, **kwargs):
         original_name = self.name
         if self.from_plugin and not original_name.endswith('_orig'):
