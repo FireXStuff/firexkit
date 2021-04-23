@@ -189,6 +189,22 @@ class FireXTask(Task):
 
         self._from_plugin = False
 
+    def apply_async(self, *args, **kwargs):
+        original_name = self.name
+        if self.from_plugin and not original_name.endswith('_orig'):
+            # If the task is overridden, and is not an intermediate override, then
+            # let's use the original name for serialization, in case that
+            # override name isn't available in the execution context.
+            # This can obviously be dangerous (but a risk we're deliberately taking)
+            # since we bind the args/kwargs/runtime options with the ovverriden service
+            # but might end up executing in a context that doesn't have it.
+            self.name = self.root_orig.name_without_orig
+        try:
+            res = super(FireXTask, self).apply_async(*args, **kwargs)
+        finally:
+            # Restore the original name
+            self.name = original_name
+        return res
 
     def signature(self, *args, **kwargs):
         # We need to lookup the task, in case it was over-ridden by a plugin
@@ -200,7 +216,6 @@ class FireXTask(Task):
             # These tests should really run in forked processes (or use Celery PyTest fixtures)
             # Otherwise, seems that everything is global
             new_self = self.app.tasks[self.name]
-
         # Get the signature from the new_self
         return super(FireXTask, new_self).signature(*args, **kwargs)
 
