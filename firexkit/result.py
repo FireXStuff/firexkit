@@ -94,6 +94,16 @@ def mark_task_postrun(task, task_id, **_kwargs):
     task.backend.client.hset(task_id, _TASK_POST_RUN_KEY, 'True')
 
 
+def get_task_postrun_info(result):
+    postrun = True
+    try:
+        postrun = get_task_info_from_result(result, key=_TASK_POST_RUN_KEY)
+    except AttributeError:
+        logger.info(f'Broker doesn\'t support postrun info; probably a dummy broker. Defaulting to postrun=True')
+
+    return postrun
+
+
 def mark_queues_ready(*queue_names: str):
     current_app.backend.client.sadd('QUEUES', *queue_names)
 
@@ -271,15 +281,14 @@ def wait_for_running_tasks_from_results(results, max_wait=3*60, sleep_between_it
     run_states.add(STARTED)
     running_tasks = []
     for result in results:
-        if result.state in run_states and not get_task_info_from_result(result, key=_TASK_POST_RUN_KEY):
+        if result.state in run_states and not get_task_postrun_info(result):
             running_tasks.append(result)
 
     max_sleep = sleep_between_iterations * 20  # Somewhat arbitrary
     start_time = time.monotonic()
     while running_tasks and (not max_wait or (time.monotonic() - start_time < max_wait)):
         time.sleep(sleep_between_iterations)
-        running_tasks = [result for result in running_tasks
-                         if not get_task_info_from_result(result, key=_TASK_POST_RUN_KEY)]
+        running_tasks = [result for result in running_tasks if not get_task_postrun_info(result)]
         sleep_between_iterations = sleep_between_iterations * 1.01 \
             if sleep_between_iterations*1.01 < max_sleep else max_sleep
 
