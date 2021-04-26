@@ -175,7 +175,7 @@ class FireXTask(Task):
     def __init__(self):
 
         check_name_for_override_posfix = getattr(self, 'check_name_for_override_posfix', True)
-        if check_name_for_override_posfix and self.name.endswith(REPLACEMENT_TASK_NAME_POSTFIX):
+        if check_name_for_override_posfix and self.name and self.name.endswith(REPLACEMENT_TASK_NAME_POSTFIX):
             raise IllegalTaskNameException(f'Task names should never end with {REPLACEMENT_TASK_NAME_POSTFIX!r}')
 
         self.undecorated = undecorate(self)
