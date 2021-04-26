@@ -67,27 +67,6 @@ class RevokedRequests(object):
                 return False
 
 
-def revoke_recursively(results, depth=1, terminate=True, wait=False, timeout=None):
-    if not isinstance(results, list):
-        results = [results]
-    for result in results:
-        children = result.children
-        if children:
-            revoke_recursively(children, depth=depth+1, terminate=terminate, wait=wait, timeout=timeout)
-        else:
-            ready = False
-            try:
-                ready = result.ready()
-            except Exception:
-                pass
-            from firexkit.result import get_result_logging_name
-            if ready:
-                logger.info('='*depth + '> %r became ready; not revoking' % get_result_logging_name(result))
-            else:
-                result.revoke(terminate=terminate, wait=wait, timeout=timeout)
-                logger.info('='*depth + '> Revoked %r' % get_result_logging_name(result))
-
-
 def get_chain_head(parent, child):
     if child == parent or parent is None or child is None:
         return child

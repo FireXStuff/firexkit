@@ -21,12 +21,12 @@ from celery.app.task import Task
 from celery.local import PromiseProxy
 from celery.signals import task_prerun, task_postrun, task_revoked
 from celery.utils.log import get_task_logger, get_logger
-from firexkit.revoke import revoke_recursively
 from firexkit.bag_of_goodies import BagOfGoodies
 from firexkit.argument_conversion import ConverterRegister
 from firexkit.result import get_tasks_names_from_results, wait_for_any_results, \
     RETURN_KEYS_KEY, wait_on_async_results_and_maybe_raise, get_result_logging_name, ChainInterruptedException, \
-    ChainRevokedException, extract_and_filter, last_causing_chain_interrupted_exception
+    ChainRevokedException, extract_and_filter, last_causing_chain_interrupted_exception, \
+    wait_for_running_tasks_from_results
 from firexkit.resources import get_firex_css_filepath, get_firex_logo_filepath
 from firexkit.firexkit_common import JINJA_ENV
 import time
@@ -495,7 +495,7 @@ class FireXTask(Task):
         finally:
             try:
                 if self._lagging_children_strategy is not PendingChildStrategy.Continue:
-                    self.revoke_pending_children()
+                    self.revoke_nonready_children()
             finally:
                 self.remove_task_logfile_handler()
 
@@ -650,6 +650,10 @@ class FireXTask(Task):
         return [child for child, result in self.context.enqueued_children.items() if
                 result.get(self._STATE_KEY) == self._PENDING]
 
+    @property
+    def nonready_enqueued_children(self):
+        return [child for child in self.context.enqueued_children if not child.ready()]
+
     def _add_enqueued_child(self, child_result):
         if child_result not in self.context.enqueued_children:
             self.context.enqueued_children[child_result] = {}
@@ -671,7 +675,7 @@ class FireXTask(Task):
         child_results = self.pending_enqueued_children if pending_only else self.enqueued_children
         self.wait_for_specific_children(child_results=child_results, **kwargs)
 
-    def wait_for_specific_children(self, child_results, **kwargs: dict):
+    def wait_for_specific_children(self, child_results, **kwargs):
         """Wait for the explicitly provided child_results to run and complete"""
         if isinstance(child_results, AsyncResult):
             child_results = [child_results]
@@ -879,16 +883,28 @@ class FireXTask(Task):
             self.wait_for_specific_children(promises, raise_exception_on_failure=raise_exception_on_failure)
         return promises
 
-    def revoke_pending_children(self, **kwargs):
-        pending_children = self.pending_enqueued_children
-        if pending_children:
-            logger.info('Pending children of current task exist.')
-            [self.revoke_child(child_result, **kwargs) for child_result in pending_children]
+    def revoke_nonready_children(self):
+        nonready_children = self.nonready_enqueued_children
+        if nonready_children:
+            logger.info('Nonready children of current task exist.')
+            revoked = [self.revoke_child(child_result) for child_result in nonready_children]
+            wait_for_running_tasks_from_results([result for result_list in revoked for result in result_list])
 
-    def revoke_child(self, result: AsyncResult, **kwargs):
+    def revoke_child(self, result: AsyncResult, terminate=True, wait=False, timeout=None):
         logger.debug('Revoking child %s' % get_result_logging_name(result))
-        revoke_recursively(result, **kwargs)
+        result.revoke(terminate=terminate, wait=wait, timeout=timeout)
+        revoked_results = [result]
         self._update_child_state(result, self._UNBLOCKED)
+        while result.parent:
+            # Walk up the chain, since nobody is waiting on those tasks explicitly.
+            result = result.parent
+            if not result.ready():
+                name = get_result_logging_name(result)
+                logger.debug(f'Revoking parent {name}')
+                result.revoke(terminate=terminate, wait=wait, timeout=timeout)
+                revoked_results.append(result)
+                logger.info(f'Revoked {name}')
+        return revoked_results
 
     @property
     def root_logger(self):

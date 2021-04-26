@@ -9,14 +9,15 @@ from typing import Union, Iterator
 
 from celery import current_app
 from celery.result import AsyncResult
-from celery.signals import before_task_publish, task_prerun
-from celery.states import FAILURE, REVOKED, PENDING, STARTED, RECEIVED, RETRY, SUCCESS
+from celery.signals import before_task_publish, task_prerun, task_postrun
+from celery.states import FAILURE, REVOKED, PENDING, STARTED, RECEIVED, RETRY, SUCCESS, READY_STATES
 from celery.utils.log import get_task_logger
 from firexkit.broker import handle_broker_timeout
 from firexkit.inspect import get_task, get_active_queues, get_active
 from firexkit.revoke import RevokedRequests
 
 RETURN_KEYS_KEY = '__task_return_keys'
+_TASK_POST_RUN_KEY = 'TASK_POST_RUN'
 
 logger = get_task_logger(__name__)
 
@@ -85,8 +86,12 @@ def update_task_name(sender, task_id, *_args, **_kwargs):
     # Although the name was populated in populate_task_info before_task_publish, the name
     # can be inaccurate if it was a plugin. We can only over-write it with the accurate name
     # at task_prerun.
-    task_info = {'name': sender.name}
-    current_app.backend.client.hmset(task_id, task_info)
+    current_app.backend.client.hset(task_id, 'name', sender.name)
+
+
+@task_postrun.connect
+def mark_task_postrun(task, task_id, **_kwargs):
+    task.backend.client.hset(task_id, _TASK_POST_RUN_KEY, 'True')
 
 
 def mark_queues_ready(*queue_names: str):
@@ -261,6 +266,28 @@ def send_block_task_states_to_caller_task(func):
     return wrapper
 
 
+def wait_for_running_tasks_from_results(results, max_wait=3*60, sleep_between_iterations=0.05):
+    run_states = set(READY_STATES)
+    run_states.add(STARTED)
+    running_tasks = []
+    for result in results:
+        if result.state in run_states and not get_task_info_from_result(result, key=_TASK_POST_RUN_KEY):
+            running_tasks.append(result)
+
+    max_sleep = sleep_between_iterations * 20  # Somewhat arbitrary
+    start_time = time.monotonic()
+    while running_tasks and (not max_wait or (time.monotonic() - start_time < max_wait)):
+        time.sleep(sleep_between_iterations)
+        running_tasks = [result for result in running_tasks
+                         if not get_task_info_from_result(result, key=_TASK_POST_RUN_KEY)]
+        sleep_between_iterations = sleep_between_iterations * 1.01 \
+            if sleep_between_iterations*1.01 < max_sleep else max_sleep
+
+    if running_tasks:
+        logger.error(f'The following tasks may still be running after task-wait timeout has expired:\n'
+                     f'{get_tasks_names_from_results(running_tasks)}')
+
+
 @send_block_task_states_to_caller_task
 def wait_on_async_results(results,
                           max_wait=None,
@@ -324,6 +351,8 @@ def wait_on_async_results(results,
                     if sleep_between_iterations*1.01 < max_sleep else max_sleep  # Exponential backoff
 
             if result.state == REVOKED:
+                #  wait for revoked tasks to actually finish running
+                wait_for_running_tasks_from_results([result])
                 raise ChainRevokedException(task_id=str(result),
                                             task_name=get_task_name_from_result(result))
             if result.state == PENDING:
