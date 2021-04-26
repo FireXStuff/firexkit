@@ -48,10 +48,8 @@ test-firexapp:
   stage: test
   trigger:
     strategy: depend
-    include:
-      - project: FireXStuff/firexapp
-        file: .gitlab-ci-upstream.yml
-        
+    project: FireXStuff/firexapp/.gitlab-ci-upstream.yml
+
 upload-pkg:
   stage: upload
   script: 
