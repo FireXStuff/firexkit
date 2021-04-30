@@ -891,10 +891,13 @@ class FireXTask(Task):
             wait_for_running_tasks_from_results([result for result_list in revoked for result in result_list])
 
     def revoke_child(self, result: AsyncResult, terminate=True, wait=False, timeout=None):
-        logger.debug('Revoking child %s' % get_result_logging_name(result))
+        name = get_result_logging_name(result)
+        logger.debug('Revoking child %s' % name)
         result.revoke(terminate=terminate, wait=wait, timeout=timeout)
         revoked_results = [result]
         self._update_child_state(result, self._UNBLOCKED)
+        logger.info(f'Revoked {name}')
+
         while result.parent:
             # Walk up the chain, since nobody is waiting on those tasks explicitly.
             result = result.parent
