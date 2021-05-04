@@ -276,7 +276,7 @@ def send_block_task_states_to_caller_task(func):
     return wrapper
 
 
-def wait_for_running_tasks_from_results(results, max_wait=3*60, sleep_between_iterations=0.05):
+def wait_for_running_tasks_from_results(results, max_wait=2*60, sleep_between_iterations=0.05):
     run_states = set(READY_STATES)
     run_states.add(STARTED)
     running_tasks = []
@@ -285,8 +285,17 @@ def wait_for_running_tasks_from_results(results, max_wait=3*60, sleep_between_it
             running_tasks.append(result)
 
     max_sleep = sleep_between_iterations * 20  # Somewhat arbitrary
-    start_time = time.monotonic()
-    while running_tasks and (not max_wait or (time.monotonic() - start_time < max_wait)):
+    start_time = last_debug_output = time.monotonic()
+    while running_tasks:
+        time_now = time.monotonic()
+
+        if time_now - last_debug_output >= 30:
+            logger.debug(f'Waiting for running task(s): {get_tasks_names_from_results(running_tasks)}')
+            last_debug_output = time_now
+
+        if max_wait and time_now - start_time >= max_wait:
+            break
+
         time.sleep(sleep_between_iterations)
         running_tasks = [result for result in running_tasks if not get_task_postrun_info(result)]
         sleep_between_iterations = sleep_between_iterations * 1.01 \
