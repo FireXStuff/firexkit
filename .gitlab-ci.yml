@@ -44,11 +44,11 @@ test:
     paths:
       - .coverage
 
-test-firexapp:
-  stage: test
-  trigger:
-    strategy: depend
-    project: FireXStuff/firexapp
+#test-firexapp:
+#  stage: test
+#  trigger:
+#    strategy: depend
+#    project: FireXStuff/firexapp
 
 upload-pkg:
   stage: upload
