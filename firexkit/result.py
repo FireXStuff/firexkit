@@ -277,8 +277,7 @@ def send_block_task_states_to_caller_task(func):
 
 
 def wait_for_running_tasks_from_results(results, max_wait=2*60, sleep_between_iterations=0.05):
-    run_states = set(READY_STATES)
-    run_states.add(STARTED)
+    run_states = set(READY_STATES) | {STARTED, RETRY}
     running_tasks = []
     for result in results:
         if result.state in run_states and not get_task_postrun_info(result):
@@ -368,16 +367,18 @@ def wait_on_async_results(results,
                 sleep_between_iterations = sleep_between_iterations * 1.01 \
                     if sleep_between_iterations*1.01 < max_sleep else max_sleep  # Exponential backoff
 
-            if result.state == REVOKED:
+            result_state = result.state
+            # Revoked tasks now go into retry sometimes in new Celery 5.1.0.
+            if result_state == REVOKED or result_state == RETRY:
                 #  wait for revoked tasks to actually finish running
                 wait_for_running_tasks_from_results([result])
                 raise ChainRevokedException(task_id=str(result),
                                             task_name=get_task_name_from_result(result))
-            if result.state == PENDING:
+            if result_state == PENDING:
                 # Pending tasks can be in revoke list. State will still be PENDING.
                 raise ChainRevokedPreRunException(task_id=str(result),
                                                   task_name=get_task_name_from_result(result))
-            if result.state == FAILURE:
+            if result_state == FAILURE:
                 cause = result.result if isinstance(result.result, Exception) else None
                 raise ChainInterruptedException(task_id=str(result),
                                                 task_name=get_task_name_from_result(result),
