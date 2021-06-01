@@ -131,7 +131,7 @@ class ConverterRegister:
 
         """
 
-        if len(args) is 0:
+        if len(args) == 0:
             raise ConverterRegistrationException("Registration requires at least one argument")
 
         func = None
