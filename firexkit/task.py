@@ -164,6 +164,81 @@ def flame(flame_key=None, formatter=_default_flame_formatter, data_type='html', 
 
     return decorator
 
+from celery.worker.request import Request, task_ready
+
+class FireXRequestOverride(Request):
+    # This is almost a copy/paste of the original on_failure, but fixes the issue
+    # raised in https://github.com/celery/celery/issues/6793
+    # This class should be removed all together once Celery fixes the issue.
+
+    def on_failure(self, exc_info, send_failed_event=True, return_ok=False):
+        """Handler called if the task raised an exception."""
+        task_ready(self)
+        exc = exc_info.exception
+
+        is_terminated = isinstance(exc, Terminated)
+        if is_terminated:
+            # If the message no longer has a connection and the worker
+            # is terminated, we aborted it.
+            # Otherwise, it is revoked.
+            if self.message.channel.connection:
+                # FIREX: We believe this is the fix
+                if not self._already_revoked:
+                    # This is a special case where the process
+                    # would not have had time to write the result.
+                    self._announce_revoked(
+                        'terminated', True, str(exc), False)
+            elif not self._already_cancelled:
+                self._announce_cancelled()
+            return
+        elif isinstance(exc, MemoryError):
+            raise MemoryError(f'Process got: {exc}')
+        elif isinstance(exc, Reject):
+            return self.reject(requeue=exc.requeue)
+        elif isinstance(exc, Ignore):
+            return self.acknowledge()
+        elif isinstance(exc, Retry):
+            return self.on_retry(exc_info)
+
+        # (acks_late) acknowledge after result stored.
+        requeue = False
+        is_worker_lost = isinstance(exc, WorkerLostError)
+        if self.task.acks_late:
+            reject = (
+                    self.task.reject_on_worker_lost and
+                    is_worker_lost
+            )
+            ack = self.task.acks_on_failure_or_timeout
+            if reject:
+                requeue = True
+                self.reject(requeue=requeue)
+                send_failed_event = False
+            elif ack:
+                self.acknowledge()
+            else:
+                # supporting the behaviour where a task failed and
+                # need to be removed from prefetched local queue
+                self.reject(requeue=False)
+
+        # This is a special case where the process would not have had time
+        # to write the result.
+        if not requeue and (is_worker_lost or not return_ok):
+            # only mark as failure if task has not been requeued
+            self.task.backend.mark_as_failure(
+                self.id, exc, request=self._context,
+                store_result=self.store_errors,
+            )
+
+        if send_failed_event:
+            self.send_event(
+                'task-failed',
+                exception=safe_repr(get_pickled_exception(exc_info.exception)),
+                traceback=exc_info.traceback,
+            )
+
+        if not return_ok:
+            error('Task handler raised error: %r', exc,
+                  exc_info=exc_info.exc_info)
 
 class FireXTask(Task):
     """
@@ -171,6 +246,9 @@ class FireXTask(Task):
     """
     DYNAMIC_RETURN = '__DYNAMIC_RETURN__'
     RETURN_KEYS_KEY = RETURN_KEYS_KEY
+
+    # Remove this override once https://github.com/celery/celery/issues/6793 is resolved
+    Request = FireXRequestOverride
 
     def __init__(self):
 
