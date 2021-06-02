@@ -164,7 +164,10 @@ def flame(flame_key=None, formatter=_default_flame_formatter, data_type='html', 
 
     return decorator
 
-from celery.worker.request import Request, task_ready
+from celery.worker.request import Request, task_ready, error
+from celery.exceptions import (Terminated, Reject, Ignore, Retry, WorkerLostError)
+from kombu.utils.encoding import safe_repr
+from celery.utils.serialization import get_pickled_exception
 
 class FireXRequestOverride(Request):
     # This is almost a copy/paste of the original on_failure, but fixes the issue
