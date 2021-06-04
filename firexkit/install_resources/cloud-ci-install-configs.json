@@ -6,5 +6,5 @@
     "run_logs_root_path_template": "/#/{{ firex_id }}/logs/",
     "run_logs_entry_path_template": "http://runs.firexflame.com/{{ firex_id }}/{{ log_entry_rel_run_root }}"
   },
-  "requested_tracking_services": ["FlameLauncher", "FireXKeeperLauncher"]
+  "requested_tracking_services": ["FlameLauncher"]
 }
