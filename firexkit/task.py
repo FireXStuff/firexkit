@@ -6,6 +6,7 @@ import os
 import textwrap
 from collections import OrderedDict
 import inspect
+from functools import partial
 from typing import Callable, Iterable, Optional, Union
 from urllib.parse import urljoin
 from copy import deepcopy
@@ -26,7 +27,7 @@ from firexkit.argument_conversion import ConverterRegister
 from firexkit.result import get_tasks_names_from_results, wait_for_any_results, \
     RETURN_KEYS_KEY, wait_on_async_results_and_maybe_raise, get_result_logging_name, ChainInterruptedException, \
     ChainRevokedException, extract_and_filter, last_causing_chain_interrupted_exception, \
-    wait_for_running_tasks_from_results
+    wait_for_running_tasks_from_results, WaitOnChainTimeoutError
 from firexkit.resources import get_firex_css_filepath, get_firex_logo_filepath
 from firexkit.firexkit_common import JINJA_ENV
 import time
@@ -242,6 +243,12 @@ class FireXRequestOverride(Request):
         if not return_ok:
             error('Task handler raised error: %r', exc,
                   exc_info=exc_info.exc_info)
+
+
+def _set_taskid_in_db_key(result: AsyncResult, db, db_key):
+    db.set(db_key, result.id)
+    logger.debug(f'Key {db_key} set to {result.id}')
+
 
 class FireXTask(Task):
     """
@@ -931,16 +938,86 @@ class FireXTask(Task):
             result_promise = self.enqueue_child(*args, block=True, **kwargs)
         else:
             # Need to make sure task with this key is run only once
-            result_promise = self._enqueue_child_once(*args,
-                                                      enqueue_once_key=enqueue_once_key,
-                                                      block=True,
-                                                      **kwargs)
+            result_promise = self.enqueue_child_once(*args,
+                                                     enqueue_once_key=enqueue_once_key,
+                                                     block=True,
+                                                     **kwargs)
 
         return extract_and_filter(result_promise,
                                   return_keys,
                                   extract_from_children=extract_from_children,
                                   extract_task_returns_only=extract_task_returns_only,
                                   extract_from_parents=extract_from_parents)
+
+    def enqueue_child_once(self, *args, enqueue_once_key, block=False, **kwargs):
+        """See  :`meth:`enqueue_child_once_and_extract`
+        """
+        enqueue_child_once_uid_dbkey = 'ENQUEUE_CHILD_ONCE_UID_' + enqueue_once_key
+
+        if self.request.retries > 0:
+            # previous run failed, so we assume (possibly incorrectly!) this child also failed
+            # and we decrement the enqueue_child count
+            num_previous_runs = self.backend.decr(enqueue_once_key)
+            logger.warn(f'enqueue_once called for a retrying task with key {enqueue_once_key}.'
+                        f' Number of previous runs: {num_previous_runs+1}. Discounting one previous run.')
+
+        num_runs_attempted = self.backend.incr(enqueue_once_key)
+        if int(num_runs_attempted) == 1:
+            # This is the first attempt, enqueue the child
+            apply_async_epilogue = partial(_set_taskid_in_db_key,
+                                           db=self.backend,
+                                           db_key=enqueue_child_once_uid_dbkey)
+            return self.enqueue_child(*args,
+                                      block=block,
+                                      apply_async_epilogue=apply_async_epilogue,
+                                      **kwargs)  # <-- Done!
+
+        # Someone else is running this; wait for uuid to be set in the backend
+        logger.info(f'Skipping enqueue of task with enqueue-once key {enqueue_once_key}; '
+                    f'It\'s being enqueued by a different owner.')
+
+        # Wait for task-id to show up in the backend
+        sec_to_wait = 60
+        logger.info(f'Checking for task-id; might take up to {sec_to_wait} seconds.')
+        loop_start_time = current_time = time.time()
+        while (current_time - loop_start_time) < sec_to_wait:
+            uid_of_enqueued_task = self.backend.get(enqueue_child_once_uid_dbkey)
+            if uid_of_enqueued_task:
+                break  # <-- we are done!
+            time.sleep(0.1)
+            current_time = time.time()
+        else:
+            # This is unexpected, since we expect uuid to be set by whoever is enqueueing this
+            raise WaitOnChainTimeoutError(f'Timed out waiting for task-id to be set.'
+                                          f' (enqueue-once key: {enqueue_once_key})')
+
+        task_uid = uid_of_enqueued_task.decode()
+        logger.info(f'{enqueue_once_key} is enqueued with task-id: {task_uid}')
+        self._send_flame_additional_child(task_uid)
+
+        result = AsyncResult(task_uid)
+        if block:
+            logger.print(f'Waiting for results of non-child task {get_result_logging_name(result)}')
+            wait_on_async_results_and_maybe_raise(results=result, caller_task=self, **kwargs)
+        return result
+
+    def enqueue_child_once_and_extract(self,
+                                       *args,
+                                       enqueue_once_key: str,
+                                       **kwargs) -> [tuple, dict]:
+        """Apply a ``chain`` with a unique key only once per FireX run, and extract results from it.
+
+        Note:
+            This is like :meth:`enqueue_child_and_extract`, but it sets `enqueue_once_key`.
+        """
+
+        if kwargs.pop('extract_from_parents', False):
+            raise ValueError('Unable to extract returns from parents when using enqueue_child_once.')
+
+        return self._enqueue_child_and_extract(*args,
+                                               enqueue_once_key=enqueue_once_key,
+                                               extract_from_parents=False,
+                                               **kwargs)
 
     def enqueue_in_parallel(self, chains, max_parallel_chains=15, wait_for_completion=True,
                             raise_exception_on_failure=False):
