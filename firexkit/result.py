@@ -312,8 +312,8 @@ def wait_on_async_results(results,
                           sleep_between_iterations=0.05,
                           check_task_worker_frequency=600,
                           fail_on_worker_failures=7,
-                          log_msg=True
-                          ):
+                          log_msg=True,
+                          **_kwargs):
     if not results:
         return
 
