@@ -13,7 +13,7 @@ from celery.signals import before_task_publish, task_prerun, task_postrun
 from celery.states import FAILURE, REVOKED, PENDING, STARTED, RECEIVED, RETRY, SUCCESS, READY_STATES
 from celery.utils.log import get_task_logger
 from firexkit.broker import handle_broker_timeout
-from firexkit.inspect import get_task, get_active_queues, get_active
+from firexkit.inspect import get_task, get_active_queues, get_active, get_reserved
 from firexkit.revoke import RevokedRequests
 
 RETURN_KEYS_KEY = '__task_return_keys'
@@ -212,19 +212,29 @@ def _is_worker_alive(result: AsyncResult, timeout=None, retry_delay=0.1, retries
             task_info = get_task(method_args=(task_id,), destination=(hostname,), timeout=60)
             if task_info and any(task_info.values()):
                 return True
-            else:
-                # Try get_active, since we suspect query_task (the api used by get_task) may be broken sometimes.
-                active_tasks = get_active(destination=(hostname,), timeout=60)
-                task_list = active_tasks.get(hostname) if active_tasks else None
-                if task_list:
-                    for task in task_list:
-                        this_task_id = task.get('id')
-                        if this_task_id == task_id:
-                            return True
+
+            # Try get_active and get_reserved, since we suspect query_task (the api used by get_task above)
+            # may be broken sometimes.
+            active_tasks = get_active(destination=(hostname,), timeout=60)
+            task_list = active_tasks.get(hostname) if active_tasks else None
+            if task_list:
+                for task in task_list:
+                    this_task_id = task.get('id')
+                    if this_task_id == task_id:
+                        return True
+
+            reserved_tasks = get_reserved(destination=(hostname,), timeout=60)
+            task_list = reserved_tasks.get(hostname) if reserved_tasks else None
+            if task_list:
+                for task in task_list:
+                    this_task_id = task.get('id')
+                    if this_task_id == task_id:
+                        return True
 
             logger.debug(f'Task inspection for {task_name} on {hostname} with id '
                          f'of {task_id} returned:\n{pformat(task_info)}\n'
-                         f'Active tasks:\n{pformat(active_tasks)}')
+                         f'Active tasks:\n{pformat(active_tasks)}'
+                         f'Reserved tasks:\n{pformat(reserved_tasks)}')
 
         elif state == PENDING or state == RETRY:
             # Check if task queue is alive
