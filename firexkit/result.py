@@ -233,7 +233,7 @@ def _is_worker_alive(result: AsyncResult, timeout=None, retry_delay=0.1, retries
 
             logger.debug(f'Task inspection for {task_name} on {hostname} with id '
                          f'of {task_id} returned:\n{pformat(task_info)}\n'
-                         f'Active tasks:\n{pformat(active_tasks)}'
+                         f'Active tasks:\n{pformat(active_tasks)}\n'
                          f'Reserved tasks:\n{pformat(reserved_tasks)}')
 
         elif state == PENDING or state == RETRY:
