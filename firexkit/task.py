@@ -13,6 +13,7 @@ from copy import deepcopy
 
 from celery.canvas import Signature
 from celery.result import AsyncResult
+from celery.states import REVOKED
 from contextlib import contextmanager
 from enum import Enum
 from logging.handlers import WatchedFileHandler
@@ -33,6 +34,7 @@ from firexkit.firexkit_common import JINJA_ENV
 import time
 
 REPLACEMENT_TASK_NAME_POSTFIX = '_orig'
+FIREX_REVOKE_COMPLETE_EVENT_TYPE = 'task-firex-revoked'
 
 logger = get_task_logger(__name__)
 
@@ -1351,6 +1353,12 @@ def send_task_completed_event(task, task_id, backend):
 @task_postrun.connect
 def statsd_task_postrun(sender, task, task_id, args, kwargs, **donotcare):
     send_task_completed_event(task, task_id, sender.backend)
+
+    # Celery can send task-revoked event before task is completed, allowing other states (e.g. task-unblocked) to
+    # be emitted after task-revoked. Sending another indicator of revoked here allows the terminal state to be
+    # correctly captured by listeners, since task_postrun occurs when the task is _really_ complete.
+    if task.AsyncResult(task_id).state == REVOKED:
+        task.send_event(FIREX_REVOKE_COMPLETE_EVENT_TYPE)
 
 
 @task_revoked.connect
