@@ -7,36 +7,35 @@ from celery.utils.log import get_task_logger
 logger = get_task_logger(__name__)
 
 
-class InspectionReturnedNone(Exception):
-    pass
-
-
 def inspect_with_retry(inspect_retry_timeout=30, inspect_method=None, retry_if_None_returned=True,
                        celery_app=current_app, method_args: Iterable = None, **inspect_opts):
+
+    inspect_retry_timeout = inspect_retry_timeout if inspect_retry_timeout else 0
+    timeout_time = time.time() + inspect_retry_timeout
+
     if method_args is None:
         method_args = ()
 
-    def _inspect():
+
+    def _inspect(celery_app, inspect_method, method_args, **inspect_opts):
         i = celery_app.control.inspect(**inspect_opts)
         if inspect_method:
-            return getattr(i, inspect_method)(*method_args)
+            header = f'[inspect] app.control.inspect({inspect_opts or ""}).{inspect_method}({method_args or ""})'
+            logger.debug(header)
+            result = getattr(i, inspect_method)(*method_args)
+            # TODO: The following logging message is an overkill, remove it in few days
+            logger.debug(f'{header} returned {result}')
+            return result
         else:
+            logger.debug(header)
             return i
 
-    if inspect_retry_timeout:
-        timeout_time = time.time() + inspect_retry_timeout
-        while time.time() < timeout_time:
-            try:
-                inspection_result = _inspect()
-                if inspection_result is None and retry_if_None_returned:
-                    # Inspection might return None if broker didn't respond quickly
-                    raise InspectionReturnedNone()
-                return inspection_result
-            except Exception as e:
-                logger.debug(e, exc_info=True)
-                logger.debug('Inspection failed. Retrying for up to %r seconds' % inspect_retry_timeout)
-                time.sleep(0.1)
-    return _inspect()
+    inspection_result = _inspect(celery_app, inspect_method, method_args, **inspect_opts)
+    while inspection_result is None and retry_if_None_returned and time.time() < timeout_time:
+        time.sleep(0.1)
+        logger.debug(f'[inspect] Retrying for a maximum of {inspect_retry_timeout}s')
+        inspection_result = _inspect(celery_app, inspect_method, method_args, **inspect_opts)
+    return inspection_result
 
 
 def get_active(**kwargs):
