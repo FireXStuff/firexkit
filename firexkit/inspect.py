@@ -16,6 +16,11 @@ def inspect_with_retry(inspect_retry_timeout=30, inspect_method=None, retry_if_N
     if method_args is None:
         method_args = ()
 
+    def _get_result_summary(result):
+        if result:
+            return {k: len(v) for k,v in result.items()}
+        else:
+            return result
 
     def _inspect(celery_app, inspect_method, method_args, **inspect_opts):
         i = celery_app.control.inspect(**inspect_opts)
@@ -23,8 +28,7 @@ def inspect_with_retry(inspect_retry_timeout=30, inspect_method=None, retry_if_N
             header = f'[inspect] app.control.inspect({inspect_opts or ""}).{inspect_method}({method_args or ""})'
             logger.debug(header)
             result = getattr(i, inspect_method)(*method_args)
-            # TODO: The following logging message is an overkill, remove it in few days
-            logger.debug(f'{header} returned {result}')
+            logger.debug(f'{header} returned {_get_result_summary(result)}')
             return result
         else:
             logger.debug(header)
