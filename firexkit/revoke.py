@@ -1,6 +1,7 @@
 from celery import current_app
 from datetime import timedelta, datetime
 from celery.utils.log import get_task_logger
+from firexkit.inspect import get_revoked
 
 logger = get_task_logger(__name__)
 
@@ -31,7 +32,7 @@ class RevokedRequests(object):
     @classmethod
     def get_revoked_list_from_app(cls):
         revoked_list = list()
-        v = current_app.control.inspect().revoked()
+        v = get_revoked(retry_if_None_returned=False)
         if not v:
             return revoked_list
         else:
