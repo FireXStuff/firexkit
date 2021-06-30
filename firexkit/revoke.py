@@ -32,7 +32,9 @@ class RevokedRequests(object):
     @classmethod
     def get_revoked_list_from_app(cls):
         revoked_list = list()
-        v = get_revoked(retry_if_None_returned=False)
+        v = get_revoked(retry_if_None_returned=False,
+                        timeout=60,
+                        destination=(f'{current_app.conf.primary_worker_name}@{current_app.conf.mc}', ))
         if not v:
             return revoked_list
         else:
