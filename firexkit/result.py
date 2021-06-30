@@ -368,14 +368,9 @@ def wait_on_async_results(results,
                         logger.warning(f'Task {get_task_name_from_result(result)} appears to be a zombie.'
                                        f' Failures: {task_worker_failures}')
                         if task_worker_failures >= fail_on_worker_failures:
-                            # Send instrumentation instead of raising an exception temporarily, because somehow
-                            # some workers now artificially lose don't respond to inspect() queries
                             task_id = str(result)
                             task_name = get_task_name_from_result(result)
-                            # raise ChainInterruptedByZombieTaskException(task_id=task_id, task_name=task_name)
-                            from firexkit.broker import send_task_instrumentation_event
-                            send_task_instrumentation_event(zombie_detected=True, task_id=task_id, task_name=task_name)
-                            task_worker_failures = 0
+                            raise ChainInterruptedByZombieTaskException(task_id=task_id, task_name=task_name)
                     else:
                         task_worker_failures = 0
 

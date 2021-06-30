@@ -31,6 +31,7 @@ def inspect_with_retry(inspect_retry_timeout=30, inspect_method=None, retry_if_N
             logger.debug(f'{header} returned {_get_result_summary(result)}')
             return result
         else:
+            header = f'[inspect] app.control.inspect({inspect_opts or ""})'
             logger.debug(header)
             return i
 
