@@ -3,48 +3,59 @@ from celery.utils.log import get_task_logger
 logger = get_task_logger(__name__)
 
 
-def handle_broker_timeout(callable_func, args=(), kwargs={}, timeout=None, retry_delay=0.1):
-    timeout_time = time.time() + timeout if timeout else None
+def handle_broker_timeout(callable_func, args=(), kwargs=None, timeout=15*60, retry_delay=1):
+    if kwargs is None:
+        kwargs = {}
+    maximum_retry_delay = retry_delay * 10
+    timeout_time = time.monotonic() + timeout if timeout else None
     tries = 0
+
     while True:
         tries += 1
+        func_start_time = time.monotonic()
         try:
-            callable_start_time = time.time()
             return_value = callable_func(*args, **kwargs)
         except Exception as e:
-            current_time = time.time()
-            callable_time_ms = (current_time - callable_start_time) * 1000
-            # need to handle different timeout exceptions from different brokers
-            if type(e).__name__ != "TimeoutError":
+            # need to handle different exceptions from different brokers
+            e_name = type(e).__name__
+            if e_name != "TimeoutError" and e_name != "ConnectionError":
                 raise
-            if not timeout:
-                logger.warning(f'Backend was not reachable and timed out...'
-                               f'retrying in {retry_delay}s '
-                               f'(last call took {callable_time_ms:.2f}ms)')
-                time.sleep(retry_delay)
-            else:
-                if current_time < timeout_time:
-                    remaining_time = timeout_time - current_time
-                    logger.warning(f'Backend was not reachable and timed out...'
-                                   f'retrying in {retry_delay}s for a max of {timeout}s '
-                                   f'({remaining_time:.2f}s remaining; '
-                                   f'last call took {callable_time_ms:.2f}ms)')
-                    time.sleep(retry_delay)
-                else:
-                    logger.error(f'Reached max timeout of {timeout}s...giving up '
-                                 f'(last call took {callable_time_ms:.2f}ms)!')
-                    try:
-                        send_task_instrumentation_event(instrumentation_label='handle_broker_timeout-failure',
-                                                        broker_timeout_tries=tries)
-                    finally:
-                        raise
+
+            current_time = time.monotonic()
+            if timeout_time is not None and current_time + retry_delay >= timeout_time:
+
+                logger.error(f'Reached max timeout of {timeout}s...giving up '
+                             f'(last call took {(current_time - func_start_time) * 1000:.2f}ms)')
+                try:
+                    send_task_instrumentation_event(instrumentation_label='handle_broker_timeout-failure',
+                                                    broker_timeout_tries=tries)
+                except Exception as e:
+                    logger.debug('Cannot send instrumentation event', exc_info=e)
+
+                # Raise the initial callable_func() error
+                raise
+
+            logger.warning(f'Backend was not reachable... '
+                           f' retrying in {retry_delay}s '
+                           f'(last call took {(current_time - func_start_time) * 1000:.2f}ms)')
+            if timeout_time is not None:
+                logger.warning(f'Final timeout in {timeout_time - current_time}s')
+
+            time.sleep(retry_delay)
+            # Exponential backoff
+            retry_delay = retry_delay * 1.1 \
+                if retry_delay * 1.1 < maximum_retry_delay else maximum_retry_delay
+
         else:
-            try:
-                if tries > 1:
+            # callable_func() returned successfully
+            if tries > 1:
+                try:
                     send_task_instrumentation_event(instrumentation_label='handle_broker_timeout-success',
                                                     broker_timeout_tries=tries)
-            finally:
-                return return_value
+                except Exception as e:
+                    logger.debug('Cannot send instrumentation event', exc_info=e)
+
+            return return_value
 
 
 def send_task_instrumentation_event(event_type='task-instrumentation', **fields):

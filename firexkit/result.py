@@ -29,9 +29,9 @@ def get_task_info_from_result(result, key: str = None):
         backend = current_app.backend
 
     if key is not None:
-        info = handle_broker_timeout(backend.client.hget, args=(str(result), key), timeout=30)
+        info = handle_broker_timeout(backend.client.hget, args=(str(result), key))
     else:
-        info = handle_broker_timeout(backend.client.get, args=(str(result), ), timeout=30)
+        info = handle_broker_timeout(backend.client.get, args=(str(result), ))
 
     if info is None:
         info = ''
@@ -112,7 +112,7 @@ def was_queue_ready(queue_name: str):
     return current_app.backend.client.sismember('QUEUES', queue_name)
 
 
-def is_result_ready(result: AsyncResult, timeout=None, retry_delay=0.1):
+def is_result_ready(result: AsyncResult, timeout=15*60, retry_delay=1):
     """
     Protect against broker being temporary unreachable and throwing a TimeoutError
     """
@@ -169,7 +169,7 @@ def find_unsuccessful_in_chain(result: AsyncResult)->{}:
     return res
 
 
-def _check_for_traceback_in_parents(result, timeout=None, retry_delay=0.1):
+def _check_for_traceback_in_parents(result, timeout=15*60, retry_delay=1):
     parent = handle_broker_timeout(getattr, args=(result, 'parent'), timeout=timeout, retry_delay=retry_delay)
     if parent:
         parent_failed = handle_broker_timeout(parent.failed, timeout=timeout, retry_delay=retry_delay)
@@ -186,21 +186,21 @@ def _check_for_traceback_in_parents(result, timeout=None, retry_delay=0.1):
             return _check_for_traceback_in_parents(parent, timeout=timeout, retry_delay=retry_delay)
 
 
-def _is_worker_alive(result: AsyncResult, timeout=None, retry_delay=0.1, retries=1):
+def _is_worker_alive(result: AsyncResult, retries=1):
     task_name = get_result_logging_name(result)
     tries = 0
 
     # NOTE: Retries for possible false negative in the case where task changes host in the small timing window
     # between getting task state / info and checking for aliveness. Retries for broker issues are handled downstream
     while tries <= retries:
-        state = handle_broker_timeout(lambda r: r.state, args=(result,), timeout=timeout, retry_delay=retry_delay)
+        state = handle_broker_timeout(lambda r: r.state, args=(result,))
         if not state:
             logger.debug(f'Cannot get state for {task_name}; assuming task is alive')
             return True
 
         if state == STARTED or state == RECEIVED:
             # Query the worker to see if it knows about this task
-            info = handle_broker_timeout(lambda r: r.info, args=(result,), timeout=timeout, retry_delay=retry_delay)
+            info = handle_broker_timeout(lambda r: r.info, args=(result,))
             hostname = info.get('hostname') if info else None
 
             if not hostname:
@@ -345,7 +345,7 @@ def wait_on_async_results(results,
             while not is_result_ready(result):
                 if RevokedRequests.instance().is_revoked(result):
                     break
-                _check_for_traceback_in_parents(result, timeout=30)
+                _check_for_traceback_in_parents(result)
 
                 current_time = time.monotonic()
                 if max_wait and (current_time - start_time) > max_wait:
