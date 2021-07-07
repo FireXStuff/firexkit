@@ -64,7 +64,7 @@ class HandleBrokerTimeoutTests(unittest.TestCase):
             handle_broker_timeout(fail_with_timeout, retry_delay=0.1, timeout=timeout)
         delta = time.time() - start
         self.assertGreater(delta, timeout)
-        self.assertLess(delta, timeout+retry_delay)
+        self.assertLess(delta, timeout+(retry_delay*10))  # handle_broker_timeout now uses exponential retry delay
 
     def test_succeed_after_retries(self):
         retry_delay = 0.1
