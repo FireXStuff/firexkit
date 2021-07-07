@@ -22,7 +22,7 @@ def handle_broker_timeout(callable_func, args=(), kwargs=None, timeout=15*60, re
                 raise
 
             current_time = time.monotonic()
-            if timeout_time is not None and current_time + retry_delay >= timeout_time:
+            if timeout_time is not None and current_time >= timeout_time:
 
                 logger.error(f'Reached max timeout of {timeout}s...giving up '
                              f'(last call took {(current_time - func_start_time) * 1000:.2f}ms)')
