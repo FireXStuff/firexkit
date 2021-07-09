@@ -600,12 +600,13 @@ def get_results(result: AsyncResult,
     _update_results_dict(node)
 
     # Get results from parents, if applicable
-    while node.id != parent_id:
-        node = node.parent
-        if node:
-            _update_results_dict(node)
-        else:
-            break
+    if node:
+        while node.id != parent_id:
+            node = node.parent
+            if node:
+                _update_results_dict(node)
+            else:
+                break
 
     from firexkit.task import FireXTask
     if not return_keys or return_keys == FireXTask.DYNAMIC_RETURN or return_keys == (FireXTask.DYNAMIC_RETURN,):
