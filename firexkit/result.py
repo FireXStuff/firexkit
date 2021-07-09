@@ -593,7 +593,6 @@ def get_results(result: AsyncResult,
                 extracted_dict[k] = v
 
     extracted_dict = {}
-    parent_id = result.id if extract_from_parents is False else parent_id
 
     # Get results from current AsyncResult object
     node = result
@@ -601,7 +600,8 @@ def get_results(result: AsyncResult,
 
     # Get results from parents, if applicable
     if node:
-        while node.id != parent_id:
+        stop_at = node.id if extract_from_parents is False else parent_id
+        while node.id != stop_at:
             node = node.parent
             if node:
                 _update_results_dict(node)
