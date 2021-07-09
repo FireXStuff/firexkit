@@ -1,13 +1,16 @@
 import unittest
 from firexkit.result import get_results, RETURN_KEYS_KEY
 from firexkit.task import FireXTask
+from uuid import uuid4
 
 
 class AsyncResultMock:
-    def __init__(self, result={}, successful=True, children=[]):
+    def __init__(self, result={}, successful=True, children=[], parent=None):
         self._success = successful
         self._children = children
         self._result = result
+        self._parent = parent
+        self.id = uuid4()
 
     @property
     def result(self):
@@ -19,6 +22,10 @@ class AsyncResultMock:
     @property
     def children(self):
         return self._get_children()
+
+    @property
+    def parent(self):
+        return self._parent
 
     def successful(self):
         return self._success
@@ -210,3 +217,30 @@ class GetResultsTests(unittest.TestCase):
             v1, v2 = get_results(r, return_keys=("a", FireXTask.DYNAMIC_RETURN))
             self.assertEqual(v1, 1)
             self.assertDictEqual(v2, {'a': 1, 'b': 2})
+
+    def test_extract_from_parents(self):
+        bb_child = AsyncResultMock(result={'bb': 9, 'b': 3, 'bbb': 0, RETURN_KEYS_KEY: ('bb', 'b')})
+
+        a = AsyncResultMock(result={'a': 1, 'aa': 11, 'aaa': 111, RETURN_KEYS_KEY: ('a', 'aa')})
+        b = AsyncResultMock(result={'b': 2, 'aa': 22, RETURN_KEYS_KEY: ('b', 'aa')}, parent=a, children=[bb_child])
+        c = AsyncResultMock(result={'c': 3, RETURN_KEYS_KEY: ('c', )}, parent=b)
+
+        with self.subTest('extract_from_parents=True (default)'):
+            self.assertDictEqual(get_results(c), {'a': 1, 'b': 2, 'c': 3, 'aa': 22})
+
+        with self.subTest('merge_children_results=True'):
+            self.assertDictEqual(get_results(c, merge_children_results=True), {'a': 1, 'b': 3, 'c': 3, 'aa': 22, 'bb': 9})
+
+        with self.subTest('merge_children_results=True, return_keys_only=False'):
+            self.assertDictEqual(get_results(c, merge_children_results=True, return_keys_only=False),
+                                 {'aaa': 111, 'a': 1, 'b': 3, 'c': 3, 'aa': 22, 'bb': 9, 'bbb': 0})
+
+        with self.subTest('return_keys_only=False'):
+            self.assertDictEqual(get_results(c, return_keys_only=False), {'a': 1, 'b': 2, 'c': 3, 'aa': 22, 'aaa': 111})
+
+        with self.subTest('parent_id'):
+            self.assertDictEqual(get_results(c, parent_id=b.id), {'b': 2, 'aa': 22, 'c': 3})
+
+        with self.subTest('extract_from_parents=False'):
+            self.assertDictEqual(get_results(c, extract_from_parents=False), {'c': 3})
+

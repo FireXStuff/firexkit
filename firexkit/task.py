@@ -27,8 +27,8 @@ from firexkit.bag_of_goodies import BagOfGoodies
 from firexkit.argument_conversion import ConverterRegister
 from firexkit.result import get_tasks_names_from_results, wait_for_any_results, \
     RETURN_KEYS_KEY, wait_on_async_results_and_maybe_raise, get_result_logging_name, ChainInterruptedException, \
-    ChainRevokedException, extract_and_filter, last_causing_chain_interrupted_exception, \
-    wait_for_running_tasks_from_results, WaitOnChainTimeoutError
+    ChainRevokedException, last_causing_chain_interrupted_exception, \
+    wait_for_running_tasks_from_results, WaitOnChainTimeoutError, get_results
 from firexkit.resources import get_firex_css_filepath, get_firex_logo_filepath
 from firexkit.firexkit_common import JINJA_ENV
 import time
@@ -855,45 +855,17 @@ class FireXTask(Task):
 
     def enqueue_child_and_extract(self,
                                   *args,
-                                  return_keys: Union[str, tuple] = (),
-                                  extract_from_children: bool = True,
-                                  extract_task_returns_only: bool = False,
-                                  extract_from_parents: bool = False,
                                   **kwargs) -> Union[tuple, dict]:
         """Apply a ``chain``, and extract results from it.
 
-        Note:
-            This is shorthand for :meth:`enqueue_child` followed with :meth:`extract_and_filter`.
-
-        Args:
-            *args: Tuple of args required by  :meth:`enqueue_child`
-            return_keys: A single return key string, or a tuple of keys to extract from the task results.
-                The default value of :const:`None` will return a dictionary of key/value pairs for the returned results.
-            extract_from_children: If set, extract and merge results from the children tasks as well.
-            extract_task_returns_only: If set, only return results for keys specified by the tasks' `@returns`
-                decorator or :attr:`returns` attribute, otherwise, returns will include key/value pairs from the BoG.
-            extract_from_parents: If set, will consider all results returned from tasks of the given chain (parents
-                of the last task). Else will consider only results returned by the last task of the chain.
-            **kwargs: Other options to :meth:`enqueue_child`
-
-        Returns:
-            The returns of `extract_and_filter`.
-
-        See Also:
-            extract_and_filter
-            enqueue_child_and_get_results
+        See:
+            _enqueue_child_and_extract
         """
 
         if kwargs.pop('enqueue_once_key', None):
             raise ValueError('Invalid argument. Use the enqueue_child_once_and_extract() api.')
 
-        return self._enqueue_child_and_extract(*args,
-                                               return_keys=return_keys,
-                                               extract_from_children=extract_from_children,
-                                               extract_task_returns_only=extract_task_returns_only,
-                                               enqueue_once_key='',
-                                               extract_from_parents=extract_from_parents,
-                                               **kwargs)
+        return self._enqueue_child_and_extract(*args, **kwargs)
 
     def _enqueue_child_and_extract(self,
                                    *args,
@@ -901,7 +873,7 @@ class FireXTask(Task):
                                    extract_from_children: bool = True,
                                    extract_task_returns_only: bool = False,
                                    enqueue_once_key: str = '',
-                                   extract_from_parents: bool = False,
+                                   extract_from_parents: bool = True,
                                    **kwargs) -> Union[tuple, dict]:
         """Apply a ``chain``, and extract results from it.
 
@@ -945,11 +917,11 @@ class FireXTask(Task):
                                                      block=True,
                                                      **kwargs)
 
-        return extract_and_filter(result_promise,
-                                  return_keys,
-                                  extract_from_children=extract_from_children,
-                                  extract_task_returns_only=extract_task_returns_only,
-                                  extract_from_parents=extract_from_parents)
+        return get_results(result_promise,
+                           return_keys=return_keys,
+                           merge_children_results=extract_from_children,
+                           return_keys_only=extract_task_returns_only,
+                           extract_from_parents=extract_from_parents)
 
     def enqueue_child_once(self, *args, enqueue_once_key, block=False, **kwargs):
         """See  :`meth:`enqueue_child_once_and_extract`

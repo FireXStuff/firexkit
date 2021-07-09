@@ -119,7 +119,7 @@ def is_result_ready(result: AsyncResult, timeout=15*60, retry_delay=1):
     return handle_broker_timeout(result.ready, timeout=timeout, retry_delay=retry_delay)
 
 
-def find_all_unsuccessful(result: AsyncResult, ignore_non_ready=False, depth=0)->{}:
+def find_all_unsuccessful(result: AsyncResult, ignore_non_ready=False, depth=0) -> {}:
     name = get_result_logging_name(result)
     state_str = '-'*depth*2 + '->%s: ' % name
 
@@ -145,7 +145,7 @@ def find_all_unsuccessful(result: AsyncResult, ignore_non_ready=False, depth=0)-
     return failures
 
 
-def find_unsuccessful_in_chain(result: AsyncResult)->{}:
+def find_unsuccessful_in_chain(result: AsyncResult) -> {}:
     failures = []
     did_not_run = []
     node = result
@@ -179,7 +179,9 @@ def _check_for_traceback_in_parents(result, timeout=15*60, retry_delay=1):
             raise ChainInterruptedException(task_id=str(parent),
                                             task_name=get_task_name_from_result(parent),
                                             cause=cause)
-        elif handle_broker_timeout(getattr, args=(parent, 'state'), timeout=timeout, retry_delay=retry_delay) == REVOKED:
+        elif handle_broker_timeout(getattr, args=(parent, 'state'),
+                                   timeout=timeout,
+                                   retry_delay=retry_delay) == REVOKED:
             raise ChainRevokedException(task_id=str(parent),
                                         task_name=get_task_name_from_result(parent))
         else:
@@ -318,7 +320,7 @@ def wait_for_running_tasks_from_results(results, max_wait=2*60, sleep_between_it
 @send_block_task_states_to_caller_task
 def wait_on_async_results(results,
                           max_wait=None,
-                          callbacks: [WaitLoopCallBack]=tuple(),
+                          callbacks: [WaitLoopCallBack] = tuple(),
                           sleep_between_iterations=0.05,
                           check_task_worker_frequency=600,
                           fail_on_worker_failures=7,
@@ -541,37 +543,6 @@ def _get_results(result: AsyncResult, return_keys_only=True, merge_children_resu
     return results
 
 
-def get_results(result: AsyncResult,
-                return_keys: Union[str, tuple] = (),
-                return_keys_only: bool = True,
-                merge_children_results: bool = False) -> Union[tuple, dict]:
-    """
-    Extract and return task results
-
-    Args:
-        result: The AsyncResult to extract actual returned results from
-        return_keys: A single return key string, or a tuple of keys to extract from the AsyncResult.
-            The default value of :const:`None` will return a dictionary of key/value pairs for the returned results.
-        return_keys_only: If :const:`True` (default), only return results for keys specified by the task's
-            `@returns` decorator or :attr:`returns` attribute. If :const:`False`, returns will include key/value pairs
-            from the `bag of goodies`.
-        merge_children_results: If :const:`True`, traverse children of `result`, and merge results produced by them.
-            The default value of :const:`False` will not collect results from the children.
-
-    Returns:
-        If `return_keys` parameter was specified, returns a tuple of the results in the same order of the return_keys.
-        If `return_keys` parameter wasn't specified, return a dictionary of the key/value pairs of the returned results.
-    """
-    extracted_dict = _get_results(result,
-                                  return_keys_only=return_keys_only,
-                                  merge_children_results=merge_children_results)
-    from firexkit.task import FireXTask
-    if not return_keys or return_keys == FireXTask.DYNAMIC_RETURN or return_keys == (FireXTask.DYNAMIC_RETURN, ):
-        return extracted_dict
-    else:
-        return results2tuple(extracted_dict, return_keys)
-
-
 def results2tuple(results: dict, return_keys: Union[str, tuple]) -> tuple:
     from firexkit.task import FireXTask
     if isinstance(return_keys, str):
@@ -585,16 +556,56 @@ def results2tuple(results: dict, return_keys: Union[str, tuple]) -> tuple:
     return tuple(results_to_return)
 
 
-def get_results_upto_parent(result: AsyncResult, return_keys=(), parent_id: str = None, **kwargs):
-    extracted_dict = {}
-    node = result
-    while node and node.id != parent_id:
-        node_results = get_results(node, **kwargs)
+def get_results(result: AsyncResult,
+                return_keys=(),
+                parent_id: str = None,
+                return_keys_only=True,
+                merge_children_results=False,
+                extract_from_parents=True):
+    """
+    Extract and return task results
+
+    Args:
+        result: The AsyncResult to extract actual returned results from
+        return_keys: A single return key string, or a tuple of keys to extract from the AsyncResult.
+            The default value of :const:`None` will return a dictionary of key/value pairs for the returned results.
+        return_keys_only: If :const:`True` (default), only return results for keys specified by the task's
+            `@returns` decorator or :attr:`returns` attribute. If :const:`False`, returns will include key/value pairs
+            from the `bag of goodies`.
+        parent_id: If :attr:`extract_from_parents` is set, extract results up to this parent_id, or until we can no
+            longer traverse up the parent hierarchy
+        merge_children_results: If :const:`True`, traverse children of `result`, and merge results produced by them.
+            The default value of :const:`False` will not collect results from the children.
+        extract_from_parents: If :const:`True` (default), will consider all results returned from tasks of the given
+            chain (parents of the last task). Else will consider only results returned by the last task of the chain.
+
+    Returns:
+        If `return_keys` parameter was specified, returns a tuple of the results in the same order of the return_keys.
+        If `return_keys` parameter wasn't specified, return a dictionary of the key/value pairs of the returned results.
+    """
+    def _update_results_dict(n):
+        node_results = _get_results(n,
+                                    return_keys_only=return_keys_only,
+                                    merge_children_results=merge_children_results)
         for k, v in node_results.items():
             if k not in extracted_dict:
                 # Since we're walking up the chain, children gets precedence in case we get the same key
                 extracted_dict[k] = v
+
+    extracted_dict = {}
+    parent_id = result.id if extract_from_parents is False else parent_id
+
+    # Get results from current AsyncResult object
+    node = result
+    _update_results_dict(node)
+
+    # Get results from parents, if applicable
+    while node.id != parent_id:
         node = node.parent
+        if node:
+            _update_results_dict(node)
+        else:
+            break
 
     from firexkit.task import FireXTask
     if not return_keys or return_keys == FireXTask.DYNAMIC_RETURN or return_keys == (FireXTask.DYNAMIC_RETURN,):
@@ -602,7 +613,9 @@ def get_results_upto_parent(result: AsyncResult, return_keys=(), parent_id: str 
     else:
         return results2tuple(extracted_dict, return_keys)
 
+
 FIREX_AR_REFS_ATTR = '__firex_ar_refs__'
+
 
 def is_async_result_monkey_patched_to_track():
     return hasattr(AsyncResult, FIREX_AR_REFS_ATTR)
@@ -656,6 +669,7 @@ def disable_async_result(result: AsyncResult):
     for child in children:
         disable_async_result(child)
 
+
 #
 # Returns the first exception that is not a "ChainInterruptedException"
 # in the exceptions stack.
@@ -666,6 +680,7 @@ def first_non_chain_interrupted_exception(ex):
         e = e.__cause__
     return e
 
+
 #
 # Returns the last exception in the cause chain that is a "ChainInterruptedException"
 #
@@ -674,32 +689,3 @@ def last_causing_chain_interrupted_exception(ex):
     while e.__cause__ is not None and isinstance(e.__cause__, ChainInterruptedException):
         e = e.__cause__
     return e
-
-
-def extract_and_filter(*args,
-                       extract_from_children: bool = True,
-                       extract_task_returns_only: bool = False,
-                       extract_from_parents: bool = False,
-                       **kwargs) -> Union[tuple, dict]:
-    """Wrapper for :func:`firexkit.result.get_results` and `firexkit.result.get_results_upto_parent`
-    that defaults `extract_from_children` to :const:`True` and `extract_task_returns_only` to :const:`False`
-
-    This wrapper only exists for legacy reasons since older chains might be relying on these old defaults for
-    `extract_from_children` and `extract_task_returns_only`.
-
-    Use :meth:`firexkit.result.get_results` or `firexkit.result.get_results_upto_parent` instead.
-
-    See Also:
-        firexkit.result.get_results
-    """
-
-    if extract_from_parents:
-        return get_results_upto_parent(*args,
-                                       return_keys_only=extract_task_returns_only,
-                                       merge_children_results=extract_from_children,
-                                       **kwargs)
-    else:
-        return get_results(*args,
-                           return_keys_only=extract_task_returns_only,
-                           merge_children_results=extract_from_children,
-                           **kwargs)
