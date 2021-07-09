@@ -38,20 +38,6 @@ FIREX_REVOKE_COMPLETE_EVENT_TYPE = 'task-firex-revoked'
 
 logger = get_task_logger(__name__)
 
-# START: Monkey patches required to address https://github.com/celery/celery/issues/6844
-import celery.worker
-from celery.worker import control as worker_control
-from celery.app import control
-def patched_inspect_active(self, safe=None):
-    return self._request('active', safe=safe)
-
-def patched_worker_active(state, safe=False, **kwargs):
-    return [request.info(safe=safe)
-            for request in state.tset(celery.worker.state.active_requests)]
-
-control.Inspect.active = patched_inspect_active
-worker_control.active = patched_worker_active
-# END: Monkey patches required to address https://github.com/celery/celery/issues/6844
 
 class TaskContext:
     pass
@@ -187,22 +173,6 @@ from kombu.utils.encoding import safe_repr
 from celery.utils.serialization import get_pickled_exception
 
 class FireXRequestOverride(Request):
-
-    # Fix for https://github.com/celery/celery/issues/6844
-    def info(self, safe=False):
-        return {
-            'id': self.id,
-            'name': self.name,
-            'args': self._args if not safe else self._argsrepr,
-            'kwargs': self._kwargs if not safe else self._kwargsrepr,
-            'type': self._type,
-            'hostname': self._hostname,
-            'time_start': self.time_start,
-            'acknowledged': self.acknowledged,
-            'delivery_info': self.delivery_info,
-            'worker_pid': self.worker_pid,
-        }
-
     # This is almost a copy/paste of the original on_failure, but fixes the issue
     # raised in https://github.com/celery/celery/issues/6793
     # This class should be removed all together once Celery fixes the issue.
