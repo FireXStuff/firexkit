@@ -73,7 +73,6 @@ class TaskTests(unittest.TestCase):
             with self.assertRaises(NotImplementedError):
                 test_obj()
 
-
     def test_task_argument_conversion(self):
         from firexkit.argument_conversion import ConverterRegister
         from celery.utils.threads import LocalStack
@@ -170,6 +169,11 @@ class TaskTests(unittest.TestCase):
         # noinspection PyUnusedLocal
         @test_app.task(base=FireXTask, bind=True)
         def c(myself, arg1, arg2=None):
+            pass
+
+        # noinspection PyUnusedLocal
+        @test_app.task(base=FireXTask, bind=True)
+        def d(myself, arg1, arg2=None, **some_optional_kwargs):
             pass
 
         with self.subTest('One required argument'):
@@ -313,6 +317,32 @@ class TaskTests(unittest.TestCase):
 
             c.post_task_run = types.MethodType(post_task_run, c)
             c(value1)
+
+        with self.subTest('One required and one optional argument with other optional'):
+            value1 = 1
+            value2 = 2
+
+            def post_task_run(self, results):
+                the_test.assertListEqual(self.args, [value1])
+                the_test.assertDictEqual(self.kwargs, {'arg2': value2,
+                                                       'arg3': 3})
+                the_test.assertListEqual(self.required_args, ['arg1'])
+                the_test.assertDictEqual(self.optional_args, {'arg2': None})
+                the_test.assertDictEqual(self.bound_args, {'arg1': value1,
+                                                           'arg2': value2,
+                                                           'some_optional_kwargs': {'arg3': 3}})
+                the_test.assertDictEqual(self.default_bound_args, {})
+                the_test.assertDictEqual(self.all_args, self.bound_args)
+                the_test.assertDictEqual(self.bag, {'arg1': value1,
+                                                    'arg2': value2,
+                                                    'arg3': 3})
+                the_test.assertDictEqual(self.abog, {'arg1': value1,
+                                                     'arg2': value2,
+                                                     'arg3': 3,
+                                                     'some_optional_kwargs': {'arg3': 3}})
+
+            d.post_task_run = types.MethodType(post_task_run, d)
+            d(value1,  arg2=value2, arg3=3)
 
     def test_sig_bind(self):
         test_app = Celery()

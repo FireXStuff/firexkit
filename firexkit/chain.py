@@ -96,7 +96,7 @@ def verify_chain_arguments(sig: Signature):
     for task in tasks:
         task_obj = sig.app.tasks[task.task]
         partial_bound = set(signature(task_obj.run).bind_partial(*task.args).arguments.keys())
-        kwargs_keys = set(task.kwargs.keys()) | {'args', 'kwargs'}
+        kwargs_keys = set(task.kwargs.keys())
 
         if isinstance(task_obj, FireXTask):
             required_args = task_obj.required_args

@@ -1302,16 +1302,18 @@ def task_prerequisite(pre_req_task: PromiseProxy, key: str=None, trigger: callab
     return decorator
 
 
-def parse_signature(sig: inspect.Signature)->(set, dict):
+def parse_signature(sig: inspect.Signature) -> (set, dict):
     """Parse the run function of a microservice and return required and optional arguments"""
     required = set()
     optional = {}
-    for k, v in sig.parameters.items():
-        default_value = v.default
-        if default_value is not inspect.Signature.empty:
-            optional[k] = default_value
+    for param in sig.parameters.values():
+        if param.kind in [param.VAR_POSITIONAL, param.VAR_KEYWORD]:
+            # skip *args, and **kwargs
+            continue
+        elif param.default is param.empty:
+            required.add(param.name)
         else:
-            required.add(k)
+            optional[param.name] = param.default
     return required, optional
 
 

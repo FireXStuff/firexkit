@@ -407,12 +407,12 @@ class ChainVerificationTests(unittest.TestCase):
         # noinspection PyUnusedLocal
         @test_app.task(base=FireXTask)
         @returns("take_this")
-        def a_task(required, optional="yup"):
+        def a_task(required, *other_optional_args, optional="yup", **other_optional_kwargs):
             pass  # pragma: no cover
 
         # noinspection PyUnusedLocal
         @test_app.task(base=FireXTask, returns=['take_this'])
-        def b_task(required, optional="yup"):
+        def b_task(required, *other_optional_args, optional="yup", **other_optional_kwargs):
             pass  # pragma: no cover
 
         for task in [a_task, b_task]:
