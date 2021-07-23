@@ -171,7 +171,7 @@ def find_unsuccessful_in_chain(result: AsyncResult) -> {}:
 
 def _check_for_traceback_in_parents(result, timeout=15*60, retry_delay=1):
     parent = handle_broker_timeout(getattr, args=(result, 'parent'), timeout=timeout, retry_delay=retry_delay)
-    if parent:
+    if parent and parent != result:
         parent_failed = handle_broker_timeout(parent.failed, timeout=timeout, retry_delay=retry_delay)
         if parent_failed:
             cause = handle_broker_timeout(getattr, args=(parent, 'result'), timeout=timeout, retry_delay=retry_delay)
