@@ -380,6 +380,9 @@ def wait_on_async_results(results,
                 sleep_between_iterations = sleep_between_iterations * 1.01 \
                     if sleep_between_iterations*1.01 < max_sleep else max_sleep  # Exponential backoff
 
+            # If failure happened in a chain, raise from the failing task within the chain
+            _check_for_traceback_in_parents(result)
+
             result_state = result.state
             # Revoked tasks now go into retry sometimes in new Celery 5.1.0.
             if result_state == REVOKED or result_state == RETRY:
