@@ -1,10 +1,10 @@
 {
   "viewer_templates": {
-    "viewer_base":   "http://www.firexflame.com",
+    "viewer_base":   "http://www.firexstuff.com/flame",
     "run_path_template": "/#/{{ firex_id }}",
     "task_path_template": "/#/{{ firex_id }}/tasks/{{ task_id }}",
     "run_logs_root_path_template": "/#/{{ firex_id }}/logs/",
-    "run_logs_entry_path_template": "http://runs.firexflame.com/{{ firex_id }}/{{ log_entry_rel_run_root }}"
+    "run_logs_entry_path_template": "http://www.firexstuff.com/runs/{{ firex_id }}/{{ log_entry_rel_run_root }}"
   },
   "requested_tracking_services": ["FlameLauncher", "FireXKeeperLauncher"]
 }
