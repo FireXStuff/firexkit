@@ -171,7 +171,7 @@ def find_unsuccessful_in_chain(result: AsyncResult) -> {}:
 
 def _check_for_traceback_in_parents(result, timeout=15*60, retry_delay=1):
     parent = handle_broker_timeout(getattr, args=(result, 'parent'), timeout=timeout, retry_delay=retry_delay)
-    if parent:
+    if parent and parent != result:
         parent_failed = handle_broker_timeout(parent.failed, timeout=timeout, retry_delay=retry_delay)
         if parent_failed:
             cause = handle_broker_timeout(getattr, args=(parent, 'result'), timeout=timeout, retry_delay=retry_delay)
@@ -379,6 +379,9 @@ def wait_on_async_results(results,
                 time.sleep(sleep_between_iterations)
                 sleep_between_iterations = sleep_between_iterations * 1.01 \
                     if sleep_between_iterations*1.01 < max_sleep else max_sleep  # Exponential backoff
+
+            # If failure happened in a chain, raise from the failing task within the chain
+            _check_for_traceback_in_parents(result)
 
             result_state = result.state
             # Revoked tasks now go into retry sometimes in new Celery 5.1.0.
