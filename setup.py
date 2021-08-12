@@ -19,4 +19,7 @@ setup(name='firexkit',
             "celery==5.1.0",
             "jinja2",
       ],
-      )
+      entry_points={
+            'firex.core': 'firexkit = firexkit'
+      },
+     )
