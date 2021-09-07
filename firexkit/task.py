@@ -1062,20 +1062,20 @@ class FireXTask(Task):
             self._file_logging_dir_path = os.path.dirname(self.worker_log_file)
             return self._file_logging_dir_path
 
-    @property
-    def task_logging_dirpath(self):
+    def get_task_logging_dirpath_from_request(self, request):
+        # Sometimes self.request isn't populated correctly, so we need to use this version instead of the property
         if self._task_logging_dirpath:
             return self._task_logging_dirpath
         else:
-            _task_logging_dirpath = self.get_task_logging_dirpath(self.file_logging_dirpath, self.request.hostname)
+            _task_logging_dirpath = os.path.join(self.file_logging_dirpath, request.hostname)
             if not os.path.exists(_task_logging_dirpath):
                 os.makedirs(_task_logging_dirpath, exist_ok=True)
             self._task_logging_dirpath = _task_logging_dirpath
             return self._task_logging_dirpath
 
-    @staticmethod
-    def get_task_logging_dirpath(file_logging_dirpath, hostname):
-        return os.path.join(file_logging_dirpath, hostname)
+    @property
+    def task_logging_dirpath(self):
+        return self.get_task_logging_dirpath_from_request(request=self.request)
 
     @property
     def task_log_url(self):
@@ -1086,9 +1086,13 @@ class FireXTask(Task):
         else:
             return self.task_logfile
 
+    def get_task_logfile_from_request(self, request):
+        # Sometimes self.request isn't populated correctly, so we need to use this version instead of the property
+        return self.get_task_logfile(self.get_task_logging_dirpath_from_request(request=request), self.name, request.id)
+
     @property
     def task_logfile(self):
-        return self.get_task_logfile(self.task_logging_dirpath, self.name, self.request.id)
+        return self.get_task_logfile_from_request(request=self.request)
 
     @classmethod
     def get_task_logfile(cls, task_logging_dirpath, task_name, uuid):
