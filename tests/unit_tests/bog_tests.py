@@ -20,7 +20,6 @@ class BagTests(unittest.TestCase):
                   'argv': ['~/firex7/firex.py', 'submit', '--chain', 'noop', '--no_email', '--sync'],
                   'unconverted_chain_args': {'disable_blaze': True},
                   'concurrent_runs_limit': 6,
-                  'copy_on_task_failure': False,
                   'sync': True,
                   'no_email': True,
                   'one': 'me'}
@@ -71,7 +70,6 @@ class BagTests(unittest.TestCase):
                    'argv': ['~/firex7/firex.py', 'submit', '--chain', 'noop', '--no_email', '--sync'],
                    'unconverted_chain_args': {'disable_blaze': True},
                    'concurrent_runs_limit': 6,
-                   'copy_on_task_failure': False,
                    'sync': True,
                    'no_email': True,
                    'one': 'me'}
@@ -109,7 +107,7 @@ class BagTests(unittest.TestCase):
                                                'disable_blaze': True,
                                                'plugins': '~/firex7/flow_tests/'
                                                           'argument_validation_tests.py'},
-                    'copy_on_task_failure': False, 'chain': 'beginning,ending',
+                    'chain': 'beginning,ending',
                     'missing': '@final',  # <-- This is what we are testing
                     'argv': ['~/firex7/firex.py', 'submit', '--chain', 'beginning,ending', '--start',
                              'yep', '--missing', '@final', '--sync', '--no_email', '--cc_firex', 'False',
