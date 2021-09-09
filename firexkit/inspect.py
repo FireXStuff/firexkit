@@ -8,7 +8,7 @@ logger = get_task_logger(__name__)
 
 
 def inspect_with_retry(inspect_retry_timeout=30, inspect_method=None, retry_if_None_returned=True,
-                       celery_app=current_app, method_args: Iterable = None, **inspect_opts):
+                       celery_app=current_app, method_args: Iterable = None, verbose=False, **inspect_opts):
 
     inspect_retry_timeout = inspect_retry_timeout if inspect_retry_timeout else 0
     timeout_time = time.time() + inspect_retry_timeout
@@ -26,13 +26,20 @@ def inspect_with_retry(inspect_retry_timeout=30, inspect_method=None, retry_if_N
         i = celery_app.control.inspect(**inspect_opts)
         if inspect_method:
             header = f'[inspect] app.control.inspect({inspect_opts or ""}).{inspect_method}({method_args or ""})'
-            logger.debug(header)
+            if verbose:
+                logger.debug(header)
+
             result = getattr(i, inspect_method)(*method_args)
-            logger.debug(f'{header} returned {_get_result_summary(result)}')
+
+            if verbose:
+                logger.debug(f'{header} returned {_get_result_summary(result)}')
+
             return result
         else:
             header = f'[inspect] app.control.inspect({inspect_opts or ""})'
-            logger.debug(header)
+            if verbose:
+                logger.debug(header)
+
             return i
 
     inspection_result = _inspect(celery_app, inspect_method, method_args, **inspect_opts)
