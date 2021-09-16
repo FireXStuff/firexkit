@@ -482,7 +482,7 @@ class FireXTask(Task):
                             retries=self.request.retries,
                             task_parent_id=self.request.parent_id,
                             **extra_events)
-            self.send_firex_data(self.bag)
+            self.send_firex_data(self.abog)
 
         # Print the pre-call header
         self.print_precall_header(bound_args, default_bound_args)
@@ -522,7 +522,7 @@ class FireXTask(Task):
         # Send a custom task-succeeded event with the results
         if not self.request.called_directly:
             self.send_event('task-results', firex_result=convert_to_serializable(results), **extra_events)
-            self.send_firex_data(self.bag)
+            self.send_firex_data(self.abog)
 
     def print_precall_header(self, bound_args, default_bound_args):
         n = 1
