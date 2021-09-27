@@ -722,7 +722,7 @@ class FireXTask(Task):
 
     @property
     def abog(self) -> dict:
-        return {**self.bag, **self.all_args}
+        return {**self.bag, **self.default_bound_args}
 
     #######################
     # Enqueuing child tasks

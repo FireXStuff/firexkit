@@ -338,8 +338,7 @@ class TaskTests(unittest.TestCase):
                                                     'arg3': 3})
                 the_test.assertDictEqual(self.abog, {'arg1': value1,
                                                      'arg2': value2,
-                                                     'arg3': 3,
-                                                     'some_optional_kwargs': {'arg3': 3}})
+                                                     'arg3': 3})
 
             d.post_task_run = types.MethodType(post_task_run, d)
             d(value1,  arg2=value2, arg3=3)
