@@ -86,7 +86,9 @@ def update_task_name(sender, task_id, *_args, **_kwargs):
     # Although the name was populated in populate_task_info before_task_publish, the name
     # can be inaccurate if it was a plugin. We can only over-write it with the accurate name
     # at task_prerun.
-    current_app.backend.client.hset(task_id, 'name', sender.name)
+    callable_func = current_app.backend.client.hset
+    args = (task_id, 'name', sender.name)
+    handle_broker_timeout(callable_func=callable_func, args=args, timeout=5*60, reraise_on_timeout=False)
 
 
 @task_postrun.connect

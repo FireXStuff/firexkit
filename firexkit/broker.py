@@ -3,7 +3,7 @@ from celery.utils.log import get_task_logger
 logger = get_task_logger(__name__)
 
 
-def handle_broker_timeout(callable_func, args=(), kwargs=None, timeout=15*60, retry_delay=1):
+def handle_broker_timeout(callable_func, args=(), kwargs=None, timeout=15*60, retry_delay=1, reraise_on_timeout=True):
     if kwargs is None:
         kwargs = {}
     maximum_retry_delay = retry_delay * 10
@@ -32,8 +32,10 @@ def handle_broker_timeout(callable_func, args=(), kwargs=None, timeout=15*60, re
                 except Exception as e:
                     logger.debug('Cannot send instrumentation event', exc_info=e)
 
-                # Raise the initial callable_func() error
-                raise
+                if reraise_on_timeout:
+                    # Raise the initial callable_func() error
+                    raise
+                return None
 
             logger.warning(f'Backend was not reachable... '
                            f' retrying in {retry_delay}s '
