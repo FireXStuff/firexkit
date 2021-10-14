@@ -11,7 +11,7 @@ def inspect_with_retry(inspect_retry_timeout=30, inspect_method=None, retry_if_N
                        celery_app=current_app, method_args: Iterable = None, verbose=False, **inspect_opts):
 
     inspect_retry_timeout = inspect_retry_timeout if inspect_retry_timeout else 0
-    timeout_time = time.time() + inspect_retry_timeout
+    timeout_time = time.monotonic() + inspect_retry_timeout
 
     if method_args is None:
         method_args = ()
@@ -29,7 +29,16 @@ def inspect_with_retry(inspect_retry_timeout=30, inspect_method=None, retry_if_N
             if verbose:
                 logger.debug(header)
 
-            result = getattr(i, inspect_method)(*method_args)
+            try:
+                result = getattr(i, inspect_method)(*method_args)
+            except Exception as e:
+                # need to handle different exceptions from different brokers
+                e_name = type(e).__name__
+                if e_name != "TimeoutError" and e_name != "ConnectionError":
+                    raise
+
+                result = None
+                logger.debug(f'Connection error during broker inspection', exc_info=e)
 
             if verbose:
                 logger.debug(f'{header} returned {_get_result_summary(result)}')
@@ -43,7 +52,7 @@ def inspect_with_retry(inspect_retry_timeout=30, inspect_method=None, retry_if_N
             return i
 
     inspection_result = _inspect(celery_app, inspect_method, method_args, **inspect_opts)
-    while inspection_result is None and retry_if_None_returned and time.time() < timeout_time:
+    while inspection_result is None and retry_if_None_returned and time.monotonic() < timeout_time:
         time.sleep(0.1)
         logger.debug(f'[inspect] Retrying for a maximum of {inspect_retry_timeout}s')
         inspection_result = _inspect(celery_app, inspect_method, method_args, **inspect_opts)
