@@ -334,7 +334,7 @@ def wait_on_async_results(results,
     if isinstance(results, AsyncResult):
         results = [results]
 
-    max_sleep = sleep_between_iterations * 20  # Somewhat arbitrary
+    max_sleep = sleep_between_iterations * 20 * 15  # Somewhat arbitrary
     failures = []
     start_time = time.monotonic()
     last_callback_time = {callback.func: start_time for callback in callbacks}
