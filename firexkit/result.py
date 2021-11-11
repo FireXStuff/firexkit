@@ -205,7 +205,15 @@ def _is_worker_alive(result: AsyncResult, retries=1):
         if state == STARTED or state == RECEIVED:
             # Query the worker to see if it knows about this task
             info = handle_broker_timeout(lambda r: r.info, args=(result,))
-            hostname = info.get('hostname') if info else None
+            try:
+                # NOTE: if the task completes after the check for state right above but before the call
+                # to handle_broker_timeout(), the type of 'info' is whatever the task returned, not the internal
+                # Celery dictionary we want. It can be an exception, or even a dictionary with a random 'hostname'.
+                # In the latter case _is_worker_alive() will return False, but since we retry _is_worker_alive() that
+                # should be fine -- this timing issue cannot happen twice for the same task.
+                hostname = info.get('hostname')
+            except AttributeError:
+                hostname = None
 
             if not hostname:
                 logger.debug(f'Cannot get run info for {task_name}; assuming task is alive.'
