@@ -16,7 +16,7 @@ setup(name='firexkit',
       },
       zip_safe=True,
       install_requires=[
-            "celery==5.2.0",
+            "celery==5.1.2",
             "jinja2",
       ],
       entry_points={
