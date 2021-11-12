@@ -171,23 +171,47 @@ def find_unsuccessful_in_chain(result: AsyncResult) -> {}:
     return res
 
 
-def _check_for_traceback_in_parents(result, timeout=15*60, retry_delay=1):
+def _check_for_failure_in_parents(result, timeout=15 * 60, retry_delay=1):
+    failed_parent = revoked_parent = None
     parent = handle_broker_timeout(getattr, args=(result, 'parent'), timeout=timeout, retry_delay=retry_delay)
-    if parent and parent != result:
-        parent_failed = handle_broker_timeout(parent.failed, timeout=timeout, retry_delay=retry_delay)
-        if parent_failed:
-            cause = handle_broker_timeout(getattr, args=(parent, 'result'), timeout=timeout, retry_delay=retry_delay)
-            cause = cause if isinstance(cause, Exception) else None
-            raise ChainInterruptedException(task_id=str(parent),
-                                            task_name=get_task_name_from_result(parent),
-                                            cause=cause)
-        elif handle_broker_timeout(getattr, args=(parent, 'state'),
-                                   timeout=timeout,
-                                   retry_delay=retry_delay) == REVOKED:
-            raise ChainRevokedException(task_id=str(parent),
-                                        task_name=get_task_name_from_result(parent))
-        else:
-            return _check_for_traceback_in_parents(parent, timeout=timeout, retry_delay=retry_delay)
+    while parent and parent != result:
+
+        state = handle_broker_timeout(getattr, args=(result, 'state'), timeout=timeout, retry_delay=retry_delay)
+        if state == FAILURE:
+            failed_parent = parent
+            break
+
+        if state == REVOKED or RevokedRequests.instance().is_revoked(parent):
+            revoked_parent = parent
+            break
+
+        result = parent
+        parent = handle_broker_timeout(getattr, args=(result, 'parent'), timeout=timeout, retry_delay=retry_delay)
+    else:
+        return  # <-- loop finished with no errors in parents
+
+    if revoked_parent:
+        raise ChainRevokedException(task_id=str(revoked_parent),
+                                    task_name=get_task_name_from_result(revoked_parent))
+
+    #  If we get here, failed_parent holds a failed parent
+    parent = handle_broker_timeout(getattr, args=(failed_parent, 'parent'), timeout=timeout, retry_delay=retry_delay)
+    while parent and parent != failed_parent:  # Find first failed parent, now that celery propagates parent failures
+        parent_failed = handle_broker_timeout(parent.failed,
+                                              timeout=timeout,
+                                              retry_delay=retry_delay)
+        if not parent_failed:
+            break
+
+        failed_parent = parent
+        parent = handle_broker_timeout(getattr, args=(failed_parent, 'parent'), timeout=timeout,
+                                       retry_delay=retry_delay)
+
+    cause = handle_broker_timeout(getattr, args=(failed_parent, 'result'), timeout=timeout, retry_delay=retry_delay)
+    cause = cause if isinstance(cause, Exception) else None
+    raise ChainInterruptedException(task_id=str(failed_parent),
+                                    task_name=get_task_name_from_result(failed_parent),
+                                    cause=cause)
 
 
 def _is_worker_alive(result: AsyncResult, retries=1):
@@ -357,7 +381,7 @@ def wait_on_async_results(results,
             while not is_result_ready(result):
                 if RevokedRequests.instance().is_revoked(result):
                     break
-                _check_for_traceback_in_parents(result)
+                _check_for_failure_in_parents(result)
 
                 current_time = time.monotonic()
                 if max_wait and (current_time - start_time) > max_wait:
@@ -391,11 +415,10 @@ def wait_on_async_results(results,
                     if sleep_between_iterations*1.01 < max_sleep else max_sleep  # Exponential backoff
 
             # If failure happened in a chain, raise from the failing task within the chain
-            _check_for_traceback_in_parents(result)
+            _check_for_failure_in_parents(result)
 
-            result_state = result.state
-            # Revoked tasks now go into retry sometimes in new Celery 5.1.0.
-            if result_state == REVOKED or result_state == RETRY:
+            result_state = handle_broker_timeout(getattr, args=(result, 'state'))
+            if result_state == REVOKED:
                 #  wait for revoked tasks to actually finish running
                 wait_for_running_tasks_from_results([result])
                 raise ChainRevokedException(task_id=str(result),
