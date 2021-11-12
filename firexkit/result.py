@@ -176,7 +176,7 @@ def _check_for_failure_in_parents(result, timeout=15 * 60, retry_delay=1):
     parent = handle_broker_timeout(getattr, args=(result, 'parent'), timeout=timeout, retry_delay=retry_delay)
     while parent and parent != result:
 
-        state = handle_broker_timeout(getattr, args=(result, 'state'), timeout=timeout, retry_delay=retry_delay)
+        state = handle_broker_timeout(getattr, args=(parent, 'state'), timeout=timeout, retry_delay=retry_delay)
         if state == FAILURE:
             failed_parent = parent
             break
@@ -186,7 +186,7 @@ def _check_for_failure_in_parents(result, timeout=15 * 60, retry_delay=1):
             break
 
         result = parent
-        parent = handle_broker_timeout(getattr, args=(result, 'parent'), timeout=timeout, retry_delay=retry_delay)
+        parent = handle_broker_timeout(getattr, args=(parent, 'parent'), timeout=timeout, retry_delay=retry_delay)
     else:
         return  # <-- loop finished with no errors in parents
 
@@ -204,7 +204,7 @@ def _check_for_failure_in_parents(result, timeout=15 * 60, retry_delay=1):
             break
 
         failed_parent = parent
-        parent = handle_broker_timeout(getattr, args=(failed_parent, 'parent'), timeout=timeout,
+        parent = handle_broker_timeout(getattr, args=(parent, 'parent'), timeout=timeout,
                                        retry_delay=retry_delay)
 
     cause = handle_broker_timeout(getattr, args=(failed_parent, 'result'), timeout=timeout, retry_delay=retry_delay)
