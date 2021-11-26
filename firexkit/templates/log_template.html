@@ -50,7 +50,7 @@
                <div class="header-link">
                   <a href="{{ worker_log_url }}" title="{{ worker_name }}">
                      <i class="fas fa-layer-group"></i>
-                     Worker Log
+                     {{ worker_hostname|truncate(15) }} Log
                   </a>
                </div>
             </span>
