@@ -28,7 +28,8 @@ from firexkit.argument_conversion import ConverterRegister
 from firexkit.result import get_tasks_names_from_results, wait_for_any_results, \
     RETURN_KEYS_KEY, wait_on_async_results_and_maybe_raise, get_result_logging_name, ChainInterruptedException, \
     ChainRevokedException, last_causing_chain_interrupted_exception, \
-    wait_for_running_tasks_from_results, WaitOnChainTimeoutError, get_results
+    wait_for_running_tasks_from_results, WaitOnChainTimeoutError, get_results, \
+    get_task_name_from_result
 from firexkit.resources import get_firex_css_filepath, get_firex_logo_filepath
 from firexkit.firexkit_common import JINJA_ENV
 import time
@@ -1267,6 +1268,14 @@ def is_jsonable(obj) -> bool:
     else:
         return True
 
+def _custom_serializers(obj) -> str:
+    # This is primarily done to make root service "unsuccessful_services" visible in run.json
+    if isinstance(obj, AsyncResult) and obj.failed():
+        task_name = get_task_name_from_result(obj)
+        if task_name:
+            return f'{task_name.split(".")[-1]} failed: {repr(obj.result)}'
+
+    return None
 
 def convert_to_serializable(obj, max_recursive_depth=10, _depth=0):
     if hasattr(obj, 'firex_serializable'):
@@ -1286,6 +1295,9 @@ def convert_to_serializable(obj, max_recursive_depth=10, _depth=0):
             return [convert_to_serializable(e, max_recursive_depth, _depth+1) for e in obj]
 
     # Either input isn't walkable (i.e. dict or iterable), or we're too deep in the structure to keep walking.
+    custom_serialized = _custom_serializers(obj)
+    if custom_serialized is not None:
+        return custom_serialized
     return repr(obj)
 
 
