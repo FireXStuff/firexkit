@@ -29,7 +29,7 @@ from firexkit.result import get_tasks_names_from_results, wait_for_any_results, 
     RETURN_KEYS_KEY, wait_on_async_results_and_maybe_raise, get_result_logging_name, ChainInterruptedException, \
     ChainRevokedException, last_causing_chain_interrupted_exception, \
     wait_for_running_tasks_from_results, WaitOnChainTimeoutError, get_results, \
-    get_task_name_from_result
+    get_task_name_from_result, first_non_chain_interrupted_exception
 from firexkit.resources import get_firex_css_filepath, get_firex_logo_filepath
 from firexkit.firexkit_common import JINJA_ENV
 import time
@@ -1273,7 +1273,11 @@ def _custom_serializers(obj) -> str:
     if isinstance(obj, AsyncResult) and obj.failed():
         task_name = get_task_name_from_result(obj)
         if task_name:
-            return f'{task_name.split(".")[-1]} failed: {repr(obj.result)}'
+            if isinstance(obj.result, Exception):
+                failure = first_non_chain_interrupted_exception(obj.result)
+            else:
+                failure = obj.result
+            return f'{task_name.split(".")[-1]} failed: {repr(failure)}'
 
     return None
 
