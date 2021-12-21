@@ -354,7 +354,7 @@ def wait_for_running_tasks_from_results(results, max_wait=2*60, sleep_between_it
 @send_block_task_states_to_caller_task
 def wait_on_async_results(results,
                           max_wait=None,
-                          callbacks: [WaitLoopCallBack] = tuple(),
+                          callbacks: Iterator[WaitLoopCallBack] = tuple(),
                           sleep_between_iterations=0.05,
                           check_task_worker_frequency=600,
                           fail_on_worker_failures=7,
@@ -453,10 +453,22 @@ def wait_on_async_results_and_maybe_raise(results, raise_exception_on_failure=Tr
             raise
 
 
+def _warn_on_never_callback(callbacks, poll_max_wait):
+    if callbacks:
+        for will_not_run_callback in [c for c in callbacks if c.frequency > poll_max_wait]:
+            logger.warning(f'Will not run {will_not_run_callback.func} due to frequency '
+                           'being too high relative to any child poll rate.')
+
+
 # This is a generator that returns one AsyncResult as it completes
-def wait_for_any_results(results, max_wait=None, poll_max_wait=0.1, log_msg=False, **kwargs):
+def wait_for_any_results(results, max_wait=None, poll_max_wait=0.1, log_msg=False,
+                         callbacks: Iterator[WaitLoopCallBack] = tuple(),
+                         **kwargs):
     if isinstance(results, AsyncResult):
         results = [results]
+
+    _warn_on_never_callback(callbacks, poll_max_wait)
+
     start_time = time.time()
 
     logging_names = [f'-> {get_result_logging_name(result)}' for result in results]
@@ -467,7 +479,7 @@ def wait_for_any_results(results, max_wait=None, poll_max_wait=0.1, log_msg=Fals
             raise WaitOnChainTimeoutError('Results %r were still not ready after %d seconds' % (results, max_wait))
         for result in results:
             try:
-                wait_on_async_results_and_maybe_raise([result], max_wait=poll_max_wait, log_msg=log_msg, **kwargs)
+                wait_on_async_results_and_maybe_raise([result], max_wait=poll_max_wait, log_msg=log_msg, callbacks=callbacks, **kwargs)
             except WaitOnChainTimeoutError:
                 pass
             else:
