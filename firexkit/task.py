@@ -1277,7 +1277,7 @@ def _custom_serializers(obj) -> str:
                 failure = first_non_chain_interrupted_exception(obj.result)
             else:
                 failure = obj.result
-            return f'{task_name.split(".")[-1]} failed: {repr(failure)}'
+            return f'{task_name.split(".")[-1]} failed: {failure}'
 
     return None
 
