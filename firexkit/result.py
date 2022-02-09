@@ -329,7 +329,7 @@ def wait_for_running_tasks_from_results(results, max_wait=2*60, sleep_between_it
         if result.state in run_states and not get_task_postrun_info(result):
             running_tasks.append(result)
 
-    max_sleep = sleep_between_iterations * 20  # Somewhat arbitrary
+    max_sleep = sleep_between_iterations * 60  # Somewhat arbitrary
     start_time = last_debug_output = time.monotonic()
     while running_tasks:
         time_now = time.monotonic()
