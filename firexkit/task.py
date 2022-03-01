@@ -606,7 +606,11 @@ class FireXTask(Task):
         params = sig.parameters
         for param in params.values():
             if param.name not in bound_args:
-                default_bound_args[param.name] = param.default
+                if param.default == param.empty and param.kind == param.VAR_POSITIONAL:
+                    # The param.default is set to param.empty in such cases, and need to be a tuple instead
+                    default_bound_args[param.name] = tuple()
+                else:
+                    default_bound_args[param.name] = param.default
         return default_bound_args
 
     @property
