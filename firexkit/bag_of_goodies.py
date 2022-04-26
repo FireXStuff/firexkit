@@ -6,7 +6,7 @@ class BagOfGoodies(object):
     # Special Char to denote indirect parameter references
     INDIRECT_ARG_CHAR = '@'
 
-    def __init__(self, sig: Signature, args, kwargs):
+    def __init__(self, sig: Signature, args, kwargs, has_returns_from_previous_task=True):
         args = tuple(args)
         kwargs = dict(kwargs)
         self.sig = sig
@@ -23,7 +23,7 @@ class BagOfGoodies(object):
         try:
             # If the first positional argument is a
             # dict (i.e., result of a previous task), we need to process it.
-            if isinstance(args[0], dict):
+            if isinstance(args[0], dict) and has_returns_from_previous_task:
                 original_args = args[0]
                 # Remove the RETURN_KEYS_KEY entry
                 if RETURN_KEYS_KEY in original_args:
@@ -60,11 +60,17 @@ class BagOfGoodies(object):
         for k in remove_from_kwargs.keys():
             del kwargs[k]
 
+        # remove keys from kwargs that are bound by the positional args
+        bound_args = sig.bind_partial(*args).arguments
+        for k in bound_args.keys():
+            if k in kwargs:
+                del kwargs[k]
+
         self.args = args
         self.kwargs = kwargs
 
         self.return_args = dict(kwargs)
-        self.return_args.update(sig.bind_partial(*args).arguments)
+        self.return_args.update(bound_args)
         self.return_args.update(add_later)
 
         self._apply_indirect()

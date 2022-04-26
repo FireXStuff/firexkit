@@ -56,11 +56,43 @@ class BagTests(unittest.TestCase):
         self.assertEqual(len(a), 1)
         self.assertEqual(a[0], 'yup')
 
+    def test_positional_arg_is_a_dict(self):
+        # noinspection PyUnusedLocal
+        def func(some_key):
+            # Should not reach here. We only want the signature
+            pass  # pragma: no cover
+
+        sig = inspect.signature(func)
+
+        with self.subTest('positional dict is first arg, but no previous returns'):
+            args = ({'k1': 'v1'},)
+            kwargs = {}
+            bog = BagOfGoodies(sig, args, kwargs, has_returns_from_previous_task=False)
+            self.assertDictEqual(bog.get_bag(),
+                                 {'some_key': {'k1': 'v1'}})
+            a, k = bog.split_for_signature()
+            self.assertEqual(len(a), 1)
+            self.assertEqual(a[0], {'k1': 'v1'})
+
+        with self.subTest('old value should be trumped by positional dict'):
+            old_bog = {'some_key': {'k1': 'wrong_value'},
+                       'k2': 'other_value'}
+            args = (old_bog, {'k1': 'v1'},)
+            kwargs = {}
+            bog = BagOfGoodies(sig, args, kwargs)
+            self.assertDictEqual(bog.get_bag(),
+                                 {'some_key': {'k1': 'v1'},
+                                  'k2': 'other_value'})
+            a, k = bog.split_for_signature()
+            self.assertEqual(len(a), 1)
+            self.assertEqual(a[0], {'k1': 'v1'})
+
     def test_chained_unbound_microservice(self):
         # noinspection PyUnusedLocal
         def func(one, two, three=0):
             # Should not reach here. We only want the signature
             pass  # pragma: no cover
+
         sig = inspect.signature(func)
 
         old_bog = {'log_level': 'debug',
