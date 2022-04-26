@@ -373,6 +373,12 @@ class TaskTests(unittest.TestCase):
             self.assertDictEqual(r, expected_result)
 
         with self.subTest():
+            value = {'k1': 'v1'}
+            r = a.map_args(value)
+            expected_result = {'arg1': value}
+            self.assertDictEqual(r, expected_result)
+
+        with self.subTest():
             with self.assertRaises(TypeError):
                 a.map_args()
 
