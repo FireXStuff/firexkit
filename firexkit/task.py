@@ -901,7 +901,7 @@ class FireXTask(Task):
 
         result = AsyncResult(task_uid)
         if block:
-            logger.print(f'Waiting for results of non-child task {get_result_logging_name(result)}')
+            logger.debug(f'Waiting for results of non-child task {get_result_logging_name(result)}')
             wait_on_async_results_and_maybe_raise(results=result, caller_task=self, **kwargs)
         return result
 
