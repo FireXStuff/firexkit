@@ -530,6 +530,9 @@ class FireXTask(Task):
         if raise_exception:
             raise e
 
+    def _final_call(self, *args, **kwargs):
+        return super(FireXTask, self).__call__(*self.args, **self.kwargs)
+
     def _process_arguments_and_run(self, *args, **kwargs):
         # Organise the input args by creating a BagOfGoodies
         self.context.bog = BagOfGoodies(self.sig,
@@ -544,7 +547,7 @@ class FireXTask(Task):
         # give sub-classes a chance to do something with the args
         self.pre_task_run()
 
-        result = super(FireXTask, self).__call__(*self.args, **self.kwargs)
+        result = self._final_call(*self.args, **self.kwargs)
 
         if not self._decorated_return_keys and self._task_return_keys:
             result = self.convert_returns_to_dict(self._task_return_keys, result)
