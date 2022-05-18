@@ -11,7 +11,7 @@ from typing import Callable, Iterable, Optional, Union
 from urllib.parse import urljoin
 from copy import deepcopy
 
-from celery.canvas import Signature
+from celery.canvas import Signature, _chain
 from celery.result import AsyncResult
 from celery.states import REVOKED
 from contextlib import contextmanager
@@ -38,6 +38,24 @@ REPLACEMENT_TASK_NAME_POSTFIX = '_orig'
 FIREX_REVOKE_COMPLETE_EVENT_TYPE = 'task-firex-revoked'
 
 logger = get_task_logger(__name__)
+
+################################################################
+# Monkey patching
+_orig_chain_apply_async__ = _chain.apply_async
+
+
+def _chain_apply_async(self: _chain, *args: tuple, **kwargs: dict) -> AsyncResult:
+    try:
+        chain_depth = 0
+        for task in self.tasks:
+            task.kwargs['chain_depth'] = chain_depth
+            chain_depth += 1
+    except AttributeError:
+        pass
+    return _orig_chain_apply_async__(self, *args, **kwargs)
+
+
+_chain.apply_async = _chain_apply_async
 
 
 class TaskContext:
