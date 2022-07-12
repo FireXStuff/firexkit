@@ -77,10 +77,10 @@ class GetResultsTests(unittest.TestCase):
         r = AsyncResultMock(result=result, children=[c1, c2])
 
         with self.subTest('Merging results from children'):
-            expected = result.copy()
-            expected.update(c1_result)
+            expected = c1_result.copy()
             expected.update(c2_result)
-            self.assertDictEqual(get_results(r, return_keys_only=False, merge_children_results=True),expected)
+            expected.update(result)
+            self.assertDictEqual(get_results(r, return_keys_only=False, merge_children_results=True), expected)
             self.assertDictEqual(get_results(r, merge_children_results=True), {})
 
         with self.subTest('No extraction from children'):
@@ -90,9 +90,9 @@ class GetResultsTests(unittest.TestCase):
 
         with self.subTest('Order of children does matter'):
             r = AsyncResultMock(result=result, children=[c2, c1])
-            expected = result.copy()
-            expected.update(c2_result)
+            expected = c2_result.copy()
             expected.update(c1_result)
+            expected.update(result)
             self.assertDictEqual(get_results(r, return_keys_only=False, merge_children_results=True), expected)
             self.assertDictEqual(get_results(r, merge_children_results=True), {})
 
@@ -113,8 +113,8 @@ class GetResultsTests(unittest.TestCase):
         with self.subTest('Child not successful'):
             c3 = AsyncResultMock(result=c2_result, successful=False)
             r = AsyncResultMock(result=result, children=[c1, c3])
-            expected = result.copy()
-            expected.update(c1_result)
+            expected = c1_result.copy()
+            expected.update(result)
             self.assertDictEqual(get_results(r, return_keys_only=False, merge_children_results=True), expected)
             self.assertDictEqual(get_results(r, merge_children_results=True), {})
 
@@ -122,9 +122,9 @@ class GetResultsTests(unittest.TestCase):
             c4 = AsyncResultMock(result=c2_result)
             c4._get_children = _get_children_asserts
             r = AsyncResultMock(result=result, children=[c1, c4])
-            expected = result.copy()
-            expected.update(c1_result)
+            expected = c1_result.copy()
             expected.update(c2_result)
+            expected.update(result)
             self.assertDictEqual(get_results(r, return_keys_only=False, merge_children_results=True), expected)
             self.assertDictEqual(get_results(r, merge_children_results=True), {})
 
@@ -229,11 +229,12 @@ class GetResultsTests(unittest.TestCase):
             self.assertDictEqual(get_results(c), {'a': 1, 'b': 2, 'c': 3, 'aa': 22})
 
         with self.subTest('merge_children_results=True'):
-            self.assertDictEqual(get_results(c, merge_children_results=True), {'a': 1, 'b': 3, 'c': 3, 'aa': 22, 'bb': 9})
+            self.assertDictEqual(get_results(c, merge_children_results=True),
+                                 {'a': 1, 'b': 2, 'c': 3, 'aa': 22, 'bb': 9})
 
         with self.subTest('merge_children_results=True, return_keys_only=False'):
             self.assertDictEqual(get_results(c, merge_children_results=True, return_keys_only=False),
-                                 {'aaa': 111, 'a': 1, 'b': 3, 'c': 3, 'aa': 22, 'bb': 9, 'bbb': 0})
+                                 {'aaa': 111, 'a': 1, 'b': 2, 'c': 3, 'aa': 22, 'bb': 9, 'bbb': 0})
 
         with self.subTest('return_keys_only=False'):
             self.assertDictEqual(get_results(c, return_keys_only=False), {'a': 1, 'b': 2, 'c': 3, 'aa': 22, 'aaa': 111})
