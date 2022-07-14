@@ -565,9 +565,9 @@ def _get_results(result: AsyncResult, return_keys_only=True, merge_children_resu
     results = {}
     if not result:
         return results
+    try:
 
-    if merge_children_results:
-        try:
+        if merge_children_results:
             children = result.children
             if children:
                 for child in children:
@@ -575,22 +575,20 @@ def _get_results(result: AsyncResult, return_keys_only=True, merge_children_resu
                                                 return_keys_only=return_keys_only,
                                                 merge_children_results=merge_children_results)
                     results.update(child_results)
-        except Exception as e:
-            logger.exception(e)
 
-    try:
         if result.successful():
             _results = copy.deepcopy(result.result) if isinstance(result.result, dict) else result.result
             if _results:
                 if return_keys_only:
-                    _results = get_task_results(_results)
+                    results = get_task_results(_results)
                 else:
                     # Delete the RETURN_KEYS_KEY
                     _results.pop(RETURN_KEYS_KEY, None)
-                results.update(_results)
+                    results = _results
 
     except Exception as e:
-        logger.exception(e)
+        logger.error(e)
+        logger.error(traceback.format_exc())
 
     return results
 
