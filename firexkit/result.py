@@ -566,16 +566,6 @@ def _get_results(result: AsyncResult, return_keys_only=True, merge_children_resu
     if not result:
         return results
     try:
-
-        if merge_children_results:
-            children = result.children
-            if children:
-                for child in children:
-                    child_results = get_results(child,
-                                                return_keys_only=return_keys_only,
-                                                merge_children_results=merge_children_results)
-                    results.update(child_results)
-
         if result.successful():
             _results = copy.deepcopy(result.result) if isinstance(result.result, dict) else result.result
             if _results:
@@ -586,6 +576,14 @@ def _get_results(result: AsyncResult, return_keys_only=True, merge_children_resu
                     _results.pop(RETURN_KEYS_KEY, None)
                     results = _results
 
+        if merge_children_results:
+            children = result.children
+            if children:
+                for child in children:
+                    child_results = get_results(child,
+                                                return_keys_only=return_keys_only,
+                                                merge_children_results=merge_children_results)
+                    results.update(child_results)
     except Exception as e:
         logger.error(e)
         logger.error(traceback.format_exc())
