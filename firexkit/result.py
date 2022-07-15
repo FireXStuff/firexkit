@@ -561,20 +561,39 @@ def get_task_results(results: dict) -> dict:
         return {k: results[k] for k in return_keys} if return_keys else {}
 
 
+def get_tasks_inputs_from_result(results: dict) -> dict:
+    # Returns a dict of key-value pairs of inputs passed down in the async result object
+    try:
+        return_keys = list(results[RETURN_KEYS_KEY])
+    except KeyError:
+        return results
+    else:
+        return_keys.append(RETURN_KEYS_KEY)
+        return {k: v for k, v in results.items() if k not in return_keys}
+
+
 def _get_results(result: AsyncResult, return_keys_only=True, merge_children_results=False) -> dict:
+    # Generally,
+    #   1.	Apply inputs from current result
+    #   2.	Apply child results (and inputs) from children (if merge_children_results is True)
+    #   3.	Apply output from current result
+
     results = {}
+    returned_values = {}
     if not result:
         return results
     try:
         if result.successful():
             _results = copy.deepcopy(result.result) if isinstance(result.result, dict) else result.result
             if _results:
-                if return_keys_only:
-                    results = get_task_results(_results)
-                else:
-                    # Delete the RETURN_KEYS_KEY
-                    _results.pop(RETURN_KEYS_KEY, None)
-                    results = _results
+                # these will need to be updated only after the children results are extracted
+                # i.e., node results are applied after children results
+                returned_values = get_task_results(_results)
+                if not return_keys_only:
+                    # Only relevant if merge_children_results is True:
+                    #   If return_keys_only us False, we need to apply the inputs first
+                    #   before applying the results(and inputs) of the children
+                    results = get_tasks_inputs_from_result(_results)
 
         if merge_children_results:
             children = result.children
@@ -584,9 +603,10 @@ def _get_results(result: AsyncResult, return_keys_only=True, merge_children_resu
                                                 return_keys_only=return_keys_only,
                                                 merge_children_results=merge_children_results)
                     results.update(child_results)
+
+        results.update(returned_values)
     except Exception as e:
-        logger.error(e)
-        logger.error(traceback.format_exc())
+        logger.exception(e)
 
     return results
 

@@ -229,11 +229,12 @@ class GetResultsTests(unittest.TestCase):
             self.assertDictEqual(get_results(c), {'a': 1, 'b': 2, 'c': 3, 'aa': 22})
 
         with self.subTest('merge_children_results=True'):
-            self.assertDictEqual(get_results(c, merge_children_results=True), {'a': 1, 'b': 3, 'c': 3, 'aa': 22, 'bb': 9})
+            self.assertDictEqual(get_results(c, merge_children_results=True),
+                                 {'a': 1, 'b': 2, 'c': 3, 'aa': 22, 'bb': 9})
 
         with self.subTest('merge_children_results=True, return_keys_only=False'):
             self.assertDictEqual(get_results(c, merge_children_results=True, return_keys_only=False),
-                                 {'aaa': 111, 'a': 1, 'b': 3, 'c': 3, 'aa': 22, 'bb': 9, 'bbb': 0})
+                                 {'aaa': 111, 'a': 1, 'b': 2, 'c': 3, 'aa': 22, 'bb': 9, 'bbb': 0})
 
         with self.subTest('return_keys_only=False'):
             self.assertDictEqual(get_results(c, return_keys_only=False), {'a': 1, 'b': 2, 'c': 3, 'aa': 22, 'aaa': 111})
