@@ -11,8 +11,8 @@ permissions:
 
 jobs:
   build:
-
-    runs-on: firexstuff/firex-alpine-build:3.9.10
+    runs_on: ubuntu-latest
+    container: firexstuff/firex-alpine-build:3.9.10
 
     steps:
     - uses: actions/checkout@v3
