@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build:
-    runs_on: ubuntu-latest
+    runs-on: ubuntu-latest
     container: firexstuff/firex-alpine-build:3.9.10
 
     steps:
