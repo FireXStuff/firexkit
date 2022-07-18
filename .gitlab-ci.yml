@@ -81,3 +81,4 @@ update-docs:
     - build-docs
   only:
     - tags
+
