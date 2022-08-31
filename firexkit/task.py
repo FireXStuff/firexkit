@@ -548,10 +548,7 @@ class FireXTask(Task):
         if raise_exception:
             raise e
 
-    def _process_result(self, result):
-        if not self._decorated_return_keys and self._task_return_keys:
-            result = self.convert_returns_to_dict(self._task_return_keys, result)
-
+    def _process_result(self, result, extra_events: Optional[dict] = None):
         # Need to update the dict with the results, if @results was used
         if isinstance(result, dict):
             self.context.bog.update(result)
@@ -564,14 +561,22 @@ class FireXTask(Task):
             # update the results with changes from converters
             result = {k: v for k, v in self.bag.items() if k in result}
 
-        # give sub-classes a change to do something with the results
-        self.post_task_run(result)
+        # give sub-classes a chance to do something with the results
+        self.post_task_run(result, extra_events=extra_events)
 
         return self.bag
 
-    def _final_call(self, *args, **kwargs):
+    def convert_results_if_returns_defined_by_task_definition(self, result):
+        # If @returns decorator was used, we don't need to convert since that's taken care by the decorator
+        if not self._decorated_return_keys and self._task_return_keys:
+            # This is only used if the @app.task(returns=) is used
+            result = self.convert_returns_to_dict(self._task_return_keys, result)
+        return result
+
+    def final_call(self, *args, **kwargs):
         result = super(FireXTask, self).__call__(*self.args, **self.kwargs)
-        return self._process_result(result)
+        converted_result = self.convert_results_if_returns_defined_by_task_definition(result)
+        return self._process_result(converted_result)
 
     def _process_arguments_and_run(self, *args, **kwargs):
         # Organise the input args by creating a BagOfGoodies
@@ -587,7 +592,7 @@ class FireXTask(Task):
         # give sub-classes a chance to do something with the args
         self.pre_task_run()
 
-        return self._final_call(*self.args, **self.kwargs)
+        return self.final_call(*self.args, **self.kwargs)
 
     def retry(self, *args, **kwargs):
         # Adds some logging to the original task retry
