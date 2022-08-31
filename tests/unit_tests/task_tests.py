@@ -51,7 +51,7 @@ class TaskTests(unittest.TestCase):
                 def run(self):
                     TestTask.ran = True
 
-                def post_task_run(self, results):
+                def post_task_run(self, results, extra_events=None):
                     TestTask.post_ran = True
 
             test_obj = TestTask()
@@ -179,7 +179,7 @@ class TaskTests(unittest.TestCase):
         with self.subTest('One required argument'):
             value = 1
 
-            def post_task_run(self, results):
+            def post_task_run(self, results, extra_events=None):
                 the_test.assertListEqual(self.args, [value])
                 the_test.assertDictEqual(self.kwargs, {})
                 the_test.assertListEqual(self.required_args, ['arg1'])
@@ -195,7 +195,7 @@ class TaskTests(unittest.TestCase):
         with self.subTest('One required argument with keyword'):
             value = 1
 
-            def post_task_run(self, results):
+            def post_task_run(self, results, extra_events=None):
                 the_test.assertListEqual(self.args, [])
                 the_test.assertDictEqual(self.kwargs, {'arg1': value})
                 the_test.assertListEqual(self.required_args, ['arg1'])
@@ -211,7 +211,7 @@ class TaskTests(unittest.TestCase):
         with self.subTest('One optional argument'):
             value = 1
 
-            def post_task_run(self, results):
+            def post_task_run(self, results, extra_events=None):
                 the_test.assertListEqual(self.args, [value])
                 the_test.assertDictEqual(self.kwargs, {})
                 the_test.assertListEqual(self.required_args, [])
@@ -227,7 +227,7 @@ class TaskTests(unittest.TestCase):
         with self.subTest('One optional argument with no value'):
             value = None
 
-            def post_task_run(self, results):
+            def post_task_run(self, results, extra_events=None):
                 the_test.assertListEqual(self.args, [])
                 the_test.assertDictEqual(self.kwargs, {})
                 the_test.assertListEqual(self.required_args, [])
@@ -243,7 +243,7 @@ class TaskTests(unittest.TestCase):
         with self.subTest('One optional argument with keyword'):
             value = 1
 
-            def post_task_run(self, results):
+            def post_task_run(self, results, extra_events=None):
                 the_test.assertListEqual(self.args, [])
                 the_test.assertDictEqual(self.kwargs, {'arg1': value})
                 the_test.assertListEqual(self.required_args, [])
@@ -260,7 +260,7 @@ class TaskTests(unittest.TestCase):
             value1 = 1
             value2 = 2
 
-            def post_task_run(self, results):
+            def post_task_run(self, results, extra_events=None):
                 the_test.assertListEqual(self.args, [value1, value2])
                 the_test.assertDictEqual(self.kwargs, {})
                 the_test.assertListEqual(self.required_args, ['arg1'])
@@ -281,7 +281,7 @@ class TaskTests(unittest.TestCase):
             value1 = 1
             value2 = 2
 
-            def post_task_run(self, results):
+            def post_task_run(self, results, extra_events=None):
                 the_test.assertListEqual(self.args, [])
                 the_test.assertDictEqual(self.kwargs, {'arg1': value1,
                                                        'arg2': value2})
@@ -303,7 +303,7 @@ class TaskTests(unittest.TestCase):
             value1 = 1
             value2 = None
 
-            def post_task_run(self, results):
+            def post_task_run(self, results, extra_events=None):
                 the_test.assertListEqual(self.args, [value1])
                 the_test.assertDictEqual(self.kwargs, {})
                 the_test.assertListEqual(self.required_args, ['arg1'])
@@ -322,7 +322,7 @@ class TaskTests(unittest.TestCase):
             value1 = 1
             value2 = 2
 
-            def post_task_run(self, results):
+            def post_task_run(self, results, extra_events=None):
                 the_test.assertListEqual(self.args, [value1])
                 the_test.assertDictEqual(self.kwargs, {'arg2': value2,
                                                        'arg3': 3})
