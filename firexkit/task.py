@@ -612,16 +612,17 @@ class FireXTask(Task):
 
     def is_cache_enabled(self):
         use_cache_value = self.default_use_cache
-        try:
-            request_use_cache = self.request.properties['use_cache']
-        except KeyError:
-            pass
-        else:
-            if request_use_cache is not None:
-                if request_use_cache != self.default_use_cache:
-                    logger.debug(f'use_cache default value of {self.default_use_cache!r} for task {self.name!r} '
-                                 f'was overridden by enqueue to {request_use_cache!r}')
-                use_cache_value = request_use_cache
+        if not self.request.called_directly:
+            try:
+                request_use_cache = self.request.properties['use_cache']
+            except KeyError:
+                pass
+            else:
+                if request_use_cache is not None:
+                    if request_use_cache != self.default_use_cache:
+                        logger.debug(f'use_cache default value of {self.default_use_cache!r} for task {self.name!r} '
+                                     f'was overridden by enqueue to {request_use_cache!r}')
+                    use_cache_value = request_use_cache
         return use_cache_value
 
     def cache_call(self):
