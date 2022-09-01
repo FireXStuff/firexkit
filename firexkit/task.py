@@ -58,6 +58,10 @@ def _chain_apply_async(self: _chain, *args: tuple, **kwargs: dict) -> AsyncResul
 _chain.apply_async = _chain_apply_async
 
 
+class NotInCache(Exception):
+    pass
+
+
 class TaskContext:
     pass
 
@@ -207,6 +211,7 @@ class FireXTask(Task):
 
         self.undecorated = undecorate(self)
         self.sig = inspect.signature(self.run)
+        self.use_cache = get_attr_unwrapped(self, 'use_cache', False)
         self._task_return_keys = self.get_task_return_keys()
         self._decorated_return_keys = getattr(self.undecorated, "_decorated_return_keys", tuple())
         if self._decorated_return_keys and self._task_return_keys:
@@ -573,10 +578,60 @@ class FireXTask(Task):
             result = self.convert_returns_to_dict(self._task_return_keys, result)
         return result
 
-    def final_call(self, *args, **kwargs):
+    def _get_cache_key(self):
+        # Need a sting hash of name + all_args
+        return str((self.name,) + tuple(sorted(self.all_args.items())))
+
+    def _cache_get(self, cache_key):
+        cached_uuid = self.backend.get(cache_key)
+        if cached_uuid is None:
+            raise NotInCache()
+        cached_uuid = cached_uuid.decode()
+        logger.info(f'[Caching] found entry for key {cache_key!r} at {cached_uuid!r}')
+        return cached_uuid
+
+    def _cache_set(self, cache_key, uuid):
+        # We need to just store a reference  to the uuid (no need to store the result again)
+        logger.debug(f'[Caching] storing entry for key {cache_key!r} -> {uuid!r}')
+        self.backend.set(cache_key, uuid)
+
+    @classmethod
+    def _run_from_cache(cls, cached_uuid):
+        # Retrieve the result of the original cached uuid from the backend
+        result = cls.app.backend.get_result(cached_uuid)
+        cleaned_result = cls.convert_cached_results(result)
+        return cleaned_result
+
+    @classmethod
+    def convert_cached_results(cls, result):
+        return_keys = result.get('__task_return_keys', ()) + ('__task_return_keys',)
+        return {k: v for k, v in result.items() if k in return_keys}
+
+    def cache_call(self):
+        cache_key = self._get_cache_key()
+        try:
+            cached_uuid = self._cache_get(cache_key)
+        except NotInCache:
+            logger.debug(f'[Caching] No entry found for key {cache_key!r}')
+            result = self.real_call()
+            self._cache_set(cache_key, self.request.id)
+            return result
+        else:
+            result = self._run_from_cache(cached_uuid)
+            converted_result = self.convert_cached_results(result)
+            return self._process_result(converted_result,
+                                        extra_events={'cached_result_from': cached_uuid})
+
+    def real_call(self):
         result = super(FireXTask, self).__call__(*self.args, **self.kwargs)
         converted_result = self.convert_results_if_returns_defined_by_task_definition(result)
         return self._process_result(converted_result)
+
+    def final_call(self, *args, **kwargs):
+        if self.use_cache:
+            return self.cache_call()
+        else:
+            return self.real_call()
 
     def _process_arguments_and_run(self, *args, **kwargs):
         # Organise the input args by creating a BagOfGoodies
