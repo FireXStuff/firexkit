@@ -190,6 +190,11 @@ def set_execution_options(sig: Signature, **options):
         sig.set(**options)
 
 
+def set_use_cache(sig: Signature, use_cache: bool):
+    """Set the :attr:`use_cache` execution option in every task in :attr:`sig`"""
+    set_execution_options(sig, use_cache=use_cache)
+
+
 def set_priority(sig: Signature, priority: int):
     """Set the :attr:`priority` execution option in every task in :attr:`sig`"""
     set_execution_options(sig, priority=priority)
@@ -221,6 +226,7 @@ def get_label(sig: Signature):
 
 Signature.set_execution_options = set_execution_options
 Signature.set_priority = set_priority
+Signature.set_use_cache = set_use_cache
 Signature.set_queue = set_queue
 Signature.set_soft_time_limit = set_soft_time_limit
 Signature.set_label = set_label

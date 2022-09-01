@@ -211,7 +211,6 @@ class FireXTask(Task):
 
         self.undecorated = undecorate(self)
         self.sig = inspect.signature(self.run)
-        self.use_cache = get_attr_unwrapped(self, 'use_cache', False)
         self._task_return_keys = self.get_task_return_keys()
         self._decorated_return_keys = getattr(self.undecorated, "_decorated_return_keys", tuple())
         if self._decorated_return_keys and self._task_return_keys:
@@ -607,6 +606,24 @@ class FireXTask(Task):
         return_keys = result.get('__task_return_keys', ()) + ('__task_return_keys',)
         return {k: v for k, v in result.items() if k in return_keys}
 
+    @property
+    def default_use_cache(self):
+        return getattr(self, 'use_cache', None)
+
+    def is_cache_enabled(self):
+        use_cache_value = self.default_use_cache
+        try:
+            request_use_cache = self.request.properties['use_cache']
+        except KeyError:
+            pass
+        else:
+            if request_use_cache is not None:
+                if request_use_cache != self.default_use_cache:
+                    logger.debug(f'use_cache default value of {self.default_use_cache!r} for task {self.name!r} '
+                                 f'was overridden by enqueue to {request_use_cache!r}')
+                use_cache_value = request_use_cache
+        return use_cache_value
+
     def cache_call(self):
         cache_key = self._get_cache_key()
         try:
@@ -628,7 +645,7 @@ class FireXTask(Task):
         return self._process_result(converted_result)
 
     def final_call(self, *args, **kwargs):
-        if self.use_cache:
+        if self.is_cache_enabled():
             return self.cache_call()
         else:
             return self.real_call()
