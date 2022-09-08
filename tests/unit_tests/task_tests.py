@@ -434,6 +434,33 @@ class TaskTests(unittest.TestCase):
             self.assertDictEqual(r, expected_result)
 
 
+class TaskCachingTests(unittest.TestCase):
+
+    def test_use_cache(self):
+        test_app = Celery()
+
+        with self.subTest('use_cache is not defined'):
+            @test_app.task(base=FireXTask)
+            def a():
+                pass
+
+            self.assertFalse(a.is_cache_enabled())
+
+        with self.subTest('use_cache is set to True'):
+            @test_app.task(base=FireXTask, use_cache=True)
+            def b():
+                pass
+
+            self.assertTrue(b.is_cache_enabled())
+
+        with self.subTest('use_cache is set to False'):
+            @test_app.task(base=FireXTask, use_cache=False)
+            def c():
+                pass
+
+            self.assertFalse(c.is_cache_enabled())
+
+
 class ConvertToSerializableTests(unittest.TestCase):
     d = dict(a=1, b=['2', '3'], c='4', d=dict(d1=5, d2='6'))
 
@@ -442,6 +469,7 @@ class ConvertToSerializableTests(unittest.TestCase):
 
     def test_fallback_to_repr(self):
         repr_str = "Should serialize to this"
+
         class someClass:
             def __repr__(_self):
                 return repr_str
