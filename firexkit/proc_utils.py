@@ -21,7 +21,7 @@ def get_firex_id_from_cmdline(cmd_line: []):
 
 def kill_old_procs(proc_name, keepalive=2*24*60*60, regexstr=None):
     all_firex_ids = []
-    for proc in find_current_user_recent_procs(proc_name, keepalive, regexstr):
+    for proc in find_recent_procs(proc_name, keepalive, regexstr):
         try:
             msg = 'Killing %s' % proc.pid
             firex_ids = get_firex_id_from_cmdline(proc.cmdline())
@@ -35,7 +35,7 @@ def kill_old_procs(proc_name, keepalive=2*24*60*60, regexstr=None):
     return list(set(all_firex_ids))
 
 
-def find_current_user_recent_procs(proc_name, max_age=2 * 24 * 60 * 60, regexstr=None):
+def find_recent_procs(proc_name, max_age=2*24*60*60, regexstr=None, limit_to_current_user_only=True):
 
     proclist = []
     if regexstr:
@@ -75,7 +75,7 @@ def find_current_user_recent_procs(proc_name, max_age=2 * 24 * 60 * 60, regexstr
                             first_time = False
 
                         elapsed_str = str(timedelta(seconds=elapsed))
-                        if pinfo['username'] == username:
+                        if pinfo['username'] == username or limit_to_current_user_only is False:
                             proclist.append(proc)
                             logger.debug('---- pid %s has been active for %s; cmdline=%s' %
                                          (pinfo['pid'], elapsed_str, pinfo['cmdline']))
