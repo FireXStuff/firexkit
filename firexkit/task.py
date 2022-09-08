@@ -623,7 +623,7 @@ class FireXTask(Task):
                         logger.debug(f'use_cache default value of {self.default_use_cache!r} for task {self.name!r} '
                                      f'was overridden by enqueue to {request_use_cache!r}')
                     use_cache_value = request_use_cache
-        return use_cache_value
+        return bool(use_cache_value)
 
     def cache_call(self):
         cache_key = self._get_cache_key()
