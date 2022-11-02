@@ -10,6 +10,7 @@ from functools import partial
 from typing import Callable, Iterable, Optional, Union
 from urllib.parse import urljoin
 from copy import deepcopy
+import dataclasses
 
 from celery.canvas import Signature, _chain
 from celery.result import AsyncResult
@@ -1395,6 +1396,9 @@ def _custom_serializers(obj) -> str:
 def convert_to_serializable(obj, max_recursive_depth=10, _depth=0):
     if hasattr(obj, 'firex_serializable'):
         return obj.firex_serializable()
+
+    if dataclasses.is_dataclass(obj):
+        obj = dataclasses.asdict(obj)
 
     if is_jsonable(obj):
         return obj
