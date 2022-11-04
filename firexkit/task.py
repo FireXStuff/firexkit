@@ -1398,7 +1398,10 @@ def convert_to_serializable(obj, max_recursive_depth=10, _depth=0):
         return obj.firex_serializable()
 
     if dataclasses.is_dataclass(obj):
-        obj = dataclasses.asdict(obj)
+        try:
+            obj = dataclasses.asdict(obj)
+        except TypeError:
+            pass # e.g. enums
 
     if is_jsonable(obj):
         return obj
