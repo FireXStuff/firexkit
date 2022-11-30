@@ -7,9 +7,10 @@ class BagOfGoodies(object):
     INDIRECT_ARG_CHAR = '@'
 
     def __init__(self, sig: Signature, args, kwargs, has_returns_from_previous_task=True):
-        args = tuple(args)
-        kwargs = dict(kwargs)
         self.sig = sig
+        args = tuple(args)
+        args = self.resolve_circular_indirect_references(sig, args, has_returns_from_previous_task)
+        kwargs = dict(kwargs)
 
         params = sig.parameters
         # Check if the method signature contains
@@ -38,11 +39,15 @@ class BagOfGoodies(object):
                         # method signature, or if a varkeyword(e.g. **kwargs)
                         # appeared in the signature
                         if (k in params) or self.varkeyword:
-                            if k not in kwargs:
+                            # if x='@x', and x was present in the original args, we must use it
+                            indirect_to_self = k in kwargs \
+                                               and self._is_indirect(kwargs[k]) \
+                                               and self._get_indirect_key(kwargs[k]) == k
+                            if k not in kwargs or indirect_to_self:
                                 kwargs[k] = v
                         else:
                             # Otherwise, we still need to add this parameter
-                            # later, adter the method is called
+                            # later, after the method is called
                             add_later[k] = v
                 # Remove the dict from the positional arguments
                 args = args[1:]
@@ -74,6 +79,18 @@ class BagOfGoodies(object):
         self.return_args.update(add_later)
 
         self._apply_indirect()
+
+    def resolve_circular_indirect_references(self, sig: Signature, args: tuple,
+                                             has_returns_from_previous_task: bool) -> tuple:
+        # Handle cases when '@x' is passed positionally to the argument x
+        if len(args) and isinstance(args[0], dict) and has_returns_from_previous_task:
+            bound_args = sig.bind_partial(*args[1:]).arguments
+            for k, v in bound_args.items():
+                if self._is_indirect(v) and self._get_indirect_key(v) == k and k in args[0]:
+                    bound_args[k] = args[0][k]
+            return (args[0],) + tuple(bound_args.values())
+        else:
+            return args
 
     def get_bag(self) -> {}:
         return self.return_args

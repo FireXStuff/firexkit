@@ -326,7 +326,7 @@ class BogTests(unittest.TestCase):
 
     def test_passing_from_bog_with_an_kwarg_overwrite(self):
         previous_returns = {'x': 1}
-        input_args = (previous_returns, )
+        input_args = (previous_returns,)
         input_kwargs = {'x': 2}
         for sig in [self.sig_func_a, self.sig_func_b, self.sig_func_c, self.sig_func_d, self.sig_func_e]:
             with self.subTest(sig.__str__()):
@@ -336,12 +336,24 @@ class BogTests(unittest.TestCase):
                 self.assertListEqual(args, [])
                 self.assertDictEqual(bog.get_bag(), input_kwargs)
 
+    def test_passing_from_bog_with_an_arg_overwrite_indirect_same_var(self):
+        previous_returns = {'x': 1}
+        x_user_overwrite = '@x'
+        input_args = (previous_returns, x_user_overwrite)
+        for sig in [self.sig_func_a, self.sig_func_b, self.sig_func_d, self.sig_func_e]:
+            with self.subTest(sig.__str__()):
+                bog = BagOfGoodies(sig, input_args, {})
+                args, kwargs = bog.split_for_signature()
+                self.assertDictEqual(kwargs, {})
+                self.assertListEqual(args, [1])
+                self.assertDictEqual(bog.get_bag(), {'x': 1})
+
     def test_passing_from_bog_with_indirect(self):
         previous_returns = {'y': 2}
         new_inputs = {'x': '@y'}
         new_inputs_after_resolving = {'x': 2}
         expected_returns = {**new_inputs_after_resolving, **previous_returns}
-        input_args = (previous_returns, )
+        input_args = (previous_returns,)
         for sig in [self.sig_func_a, self.sig_func_b]:
             with self.subTest(sig.__str__()):
                 bog = BagOfGoodies(sig, input_args, new_inputs)
@@ -357,9 +369,49 @@ class BogTests(unittest.TestCase):
                 self.assertListEqual(args, [])
                 self.assertDictEqual(bog.get_bag(), expected_returns)
 
+    def test_passing_from_bog_with_indirect_same_var_name(self):
+        previous_returns = {'x': 2}
+        new_inputs = {'x': '@x'}
+        new_inputs_after_resolving = {'x': 2}
+        expected_returns = {**new_inputs_after_resolving, **previous_returns}
+        input_args = (previous_returns,)
+        for sig in [self.sig_func_a, self.sig_func_b]:
+            with self.subTest(sig.__str__()):
+                bog = BagOfGoodies(sig, input_args, new_inputs)
+                args, kwargs = bog.split_for_signature()
+                self.assertDictEqual(kwargs, new_inputs_after_resolving)
+                self.assertListEqual(args, [])
+                self.assertDictEqual(bog.get_bag(), expected_returns)
+        for sig in [self.sig_func_c, self.sig_func_d, self.sig_func_e]:
+            with self.subTest(sig.__str__()):
+                bog = BagOfGoodies(sig, input_args, new_inputs)
+                args, kwargs = bog.split_for_signature()
+                self.assertDictEqual(kwargs, expected_returns)
+                self.assertListEqual(args, [])
+                self.assertDictEqual(bog.get_bag(), expected_returns)
+
+    def test_passing_from_bog_with_indirect_positional(self):
+        previous_returns = {'y': 2}
+        expected_returns = {'x': 2, **previous_returns}
+        input_args = (previous_returns, '@y')
+        for sig in [self.sig_func_a, self.sig_func_b]:
+            with self.subTest(sig.__str__()):
+                bog = BagOfGoodies(sig, input_args, {})
+                args, kwargs = bog.split_for_signature()
+                self.assertDictEqual(kwargs, {})
+                self.assertListEqual(args, [2])
+                self.assertDictEqual(bog.get_bag(), expected_returns)
+        for sig in [self.sig_func_d, self.sig_func_e]:
+            with self.subTest(sig.__str__()):
+                bog = BagOfGoodies(sig, input_args, {})
+                args, kwargs = bog.split_for_signature()
+                self.assertDictEqual(kwargs, previous_returns)
+                self.assertListEqual(args, [2])
+                self.assertDictEqual(bog.get_bag(), expected_returns)
+
     def test_passing_from_non_bog(self):
         value = 3
-        input_args = (value, )
+        input_args = (value,)
         for sig in [self.sig_func_a, self.sig_func_b, self.sig_func_d, self.sig_func_e]:
             with self.subTest(sig.__str__()):
                 bog = BagOfGoodies(sig, input_args, {})
