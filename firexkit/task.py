@@ -382,6 +382,10 @@ class FireXTask(Task):
         # Task name of first task in chain. (I.E. 'task1' in module1.task1|module2.task2)
         return task_name.split('|')[0].split('.')[-1]
 
+    @classmethod
+    def get_short_name_without_orig(cls, task_name):
+        return cls.strip_orig_from_name(cls.get_short_name(task_name))
+
     @property
     def name_without_orig(self):
         return self.strip_orig_from_name(self.name)
@@ -392,7 +396,7 @@ class FireXTask(Task):
 
     @property
     def short_name_without_orig(self):
-        return self.strip_orig_from_name(self.short_name)
+        return self.get_short_name_without_orig(self.name)
 
     @property
     def called_as_orig(self):
