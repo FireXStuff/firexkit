@@ -53,7 +53,7 @@ class InjectArgs(object):
 
     def __or__(self, other) -> Union[chain, Signature]:
         if isinstance(other, InjectArgs):
-            r = self.injectArgs | other.injectArgs
+            r = InjectArgs(**self.injectArgs, **other.injectArgs)
         else:
             r = other.clone()
             # chains and signatures are both handled by this
