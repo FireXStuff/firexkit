@@ -53,14 +53,12 @@ class InjectArgs(object):
 
     def __or__(self, other) -> Union[chain, Signature]:
         if isinstance(other, InjectArgs):
-            self.injectArgs.update(other.injectArgs)
+            r = self.injectArgs | other.injectArgs
         else:
+            r = other.clone()
             # chains and signatures are both handled by this
-            _inject_args_into_signature(other, **self.injectArgs)
-        return other
-
-    def __ior__(self, other: Union[chain, Signature]) -> Union[chain, Signature]:
-        return self | other
+            _inject_args_into_signature(r, **self.injectArgs)
+        return r
 
 
 def _inject_args_into_signature(sig, **kwargs):
@@ -73,7 +71,10 @@ def _inject_args_into_signature(sig, **kwargs):
 
     existing = task.kwargs.keys()
     subset = {k: v for k, v in kwargs.items() if k not in existing}
-    task.kwargs.update(subset)
+
+    # Don't update kwargs in-place, because that may change the kwargs in the original object
+    # even where the object was cloned in __ior__ above (kwargs isn't copied and is still the same object)
+    task.kwargs = task.kwargs | subset
 
 
 Signature.injectArgs = _inject_args_into_signature
