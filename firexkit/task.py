@@ -227,9 +227,9 @@ class DictWillNotAllowWrites(dict):
         self.warn()
         return super().pop(*args, **kwargs)
 
-    def popitem(self, *args, **kwargs):
+    def popitem(self):
         self.warn()
-        return super().popitem(*args, **kwargs)
+        return super().popitem()
 
     def clear(self):
         self.warn()
