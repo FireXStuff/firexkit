@@ -223,6 +223,26 @@ class DictWillNotAllowWrites(dict):
         self.warn()
         super().__delitem__(*args, **kwargs)
 
+    def pop(self, *args, **kwargs):
+        self.warn()
+        return super().pop(*args, **kwargs)
+
+    def popitem(self, *args, **kwargs):
+        self.warn()
+        return super().popitem(*args, **kwargs)
+
+    def clear(self):
+        self.warn()
+        super().clear()
+
+    def setdefault(self, *args, **kwargs):
+        self.warn()
+        return super().setdefault(*args, **kwargs)
+
+    def update(self, *args, **kwargs):
+        self.warn()
+        super().update(*args, **kwargs)
+
 
 class FireXTask(Task):
     """
