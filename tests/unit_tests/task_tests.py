@@ -8,6 +8,7 @@ from firexkit.chain import returns
 from firexkit.task import FireXTask, task_prerequisite, convert_to_serializable, IllegalTaskNameException, \
     REPLACEMENT_TASK_NAME_POSTFIX
 
+
 class TaskTests(unittest.TestCase):
 
     def test_instantiation(self):
@@ -18,6 +19,7 @@ class TaskTests(unittest.TestCase):
             class TestTask(FireXTask):
                 name = self.__module__ + "." + self.__class__.__name__ + "." \
                        + f"TestClass{REPLACEMENT_TASK_NAME_POSTFIX}"
+
             with self.assertRaises(IllegalTaskNameException):
                 test_obj = TestTask()
 
@@ -68,6 +70,7 @@ class TaskTests(unittest.TestCase):
             # noinspection PyAbstractClass
             class TestTask(FireXTask):
                 name = self.__module__ + "." + self.__class__.__name__ + "." + "TestClass"
+
             test_obj = TestTask()
             test_obj.request_stack = LocalStack()  # simulate binding
             with self.assertRaises(NotImplementedError):
@@ -185,9 +188,9 @@ class TaskTests(unittest.TestCase):
                 the_test.assertListEqual(self.required_args, ['arg1'])
                 the_test.assertDictEqual(self.bound_args, {'arg1': value})
                 the_test.assertDictEqual(self.default_bound_args, {})
-                the_test.assertDictEqual(self.all_args, {'arg1': value})
-                the_test.assertDictEqual(self.bag, {'arg1': value})
-                the_test.assertDictEqual(self.abog, {'arg1': value})
+                the_test.assertDictEqual(self.all_args.copy(), {'arg1': value})
+                the_test.assertDictEqual(self.bag.copy(), {'arg1': value})
+                the_test.assertDictEqual(self.abog.copy(), {'arg1': value})
 
             a.post_task_run = types.MethodType(post_task_run, a)
             a(value)
@@ -201,9 +204,9 @@ class TaskTests(unittest.TestCase):
                 the_test.assertListEqual(self.required_args, ['arg1'])
                 the_test.assertDictEqual(self.bound_args, {'arg1': value})
                 the_test.assertDictEqual(self.default_bound_args, {})
-                the_test.assertDictEqual(self.all_args, {'arg1': value})
-                the_test.assertDictEqual(self.bag, {'arg1': value})
-                the_test.assertDictEqual(self.abog, {'arg1': value})
+                the_test.assertDictEqual(self.all_args.copy(), {'arg1': value})
+                the_test.assertDictEqual(self.bag.copy(), {'arg1': value})
+                the_test.assertDictEqual(self.abog.copy(), {'arg1': value})
 
             a.post_task_run = types.MethodType(post_task_run, a)
             a(arg1=value)
@@ -217,9 +220,9 @@ class TaskTests(unittest.TestCase):
                 the_test.assertListEqual(self.required_args, [])
                 the_test.assertDictEqual(self.bound_args, {'arg1': value})
                 the_test.assertDictEqual(self.default_bound_args, {})
-                the_test.assertDictEqual(self.all_args, {'arg1': value})
-                the_test.assertDictEqual(self.bag, {'arg1': value})
-                the_test.assertDictEqual(self.abog, {'arg1': value})
+                the_test.assertDictEqual(self.all_args.copy(), {'arg1': value})
+                the_test.assertDictEqual(self.bag.copy(), {'arg1': value})
+                the_test.assertDictEqual(self.abog.copy(), {'arg1': value})
 
             b.post_task_run = types.MethodType(post_task_run, b)
             b(value)
@@ -233,9 +236,10 @@ class TaskTests(unittest.TestCase):
                 the_test.assertListEqual(self.required_args, [])
                 the_test.assertDictEqual(self.bound_args, {})
                 the_test.assertDictEqual(self.default_bound_args, {'arg1': value})
-                the_test.assertDictEqual(self.all_args, {'arg1': value})
-                the_test.assertDictEqual(self.bag, {})
-                the_test.assertDictEqual(self.abog, {'arg1': value})
+                the_test.assertDictEqual(self.all_args.copy(), {'arg1': value})
+                the_test.assertDictEqual(self.bag.copy(), {})
+                the_test.assertDictEqual(self.abog.copy(), {'arg1': value})
+                self.abog['d'] = 1
 
             b.post_task_run = types.MethodType(post_task_run, b)
             b()
@@ -249,9 +253,9 @@ class TaskTests(unittest.TestCase):
                 the_test.assertListEqual(self.required_args, [])
                 the_test.assertDictEqual(self.bound_args, {'arg1': value})
                 the_test.assertDictEqual(self.default_bound_args, {})
-                the_test.assertDictEqual(self.all_args, {'arg1': value})
-                the_test.assertDictEqual(self.bag, {'arg1': value})
-                the_test.assertDictEqual(self.abog, {'arg1': value})
+                the_test.assertDictEqual(self.all_args.copy(), {'arg1': value})
+                the_test.assertDictEqual(self.bag.copy(), {'arg1': value})
+                the_test.assertDictEqual(self.abog.copy(), {'arg1': value})
 
             b.post_task_run = types.MethodType(post_task_run, b)
             b(arg1=value)
@@ -267,12 +271,12 @@ class TaskTests(unittest.TestCase):
                 the_test.assertDictEqual(self.bound_args, {'arg1': value1,
                                                            'arg2': value2})
                 the_test.assertDictEqual(self.default_bound_args, {})
-                the_test.assertDictEqual(self.all_args, {'arg1': value1,
-                                                         'arg2': value2})
-                the_test.assertDictEqual(self.bag, {'arg1': value1,
-                                                    'arg2': value2})
-                the_test.assertDictEqual(self.abog, {'arg1': value1,
-                                                     'arg2': value2})
+                the_test.assertDictEqual(self.all_args.copy(), {'arg1': value1,
+                                                                'arg2': value2})
+                the_test.assertDictEqual(self.bag.copy(), {'arg1': value1,
+                                                           'arg2': value2})
+                the_test.assertDictEqual(self.abog.copy(), {'arg1': value1,
+                                                            'arg2': value2})
 
             c.post_task_run = types.MethodType(post_task_run, c)
             c(value1, value2)
@@ -289,12 +293,12 @@ class TaskTests(unittest.TestCase):
                 the_test.assertDictEqual(self.bound_args, {'arg1': value1,
                                                            'arg2': value2})
                 the_test.assertDictEqual(self.default_bound_args, {})
-                the_test.assertDictEqual(self.all_args, {'arg1': value1,
-                                                         'arg2': value2})
-                the_test.assertDictEqual(self.bag, {'arg1': value1,
-                                                    'arg2': value2})
-                the_test.assertDictEqual(self.abog, {'arg1': value1,
-                                                     'arg2': value2})
+                the_test.assertDictEqual(self.all_args.copy(), {'arg1': value1,
+                                                                'arg2': value2})
+                the_test.assertDictEqual(self.bag.copy(), {'arg1': value1,
+                                                           'arg2': value2})
+                the_test.assertDictEqual(self.abog.copy(), {'arg1': value1,
+                                                            'arg2': value2})
 
             c.post_task_run = types.MethodType(post_task_run, c)
             c(arg2=value2, arg1=value1)
@@ -309,11 +313,11 @@ class TaskTests(unittest.TestCase):
                 the_test.assertListEqual(self.required_args, ['arg1'])
                 the_test.assertDictEqual(self.bound_args, {'arg1': value1})
                 the_test.assertDictEqual(self.default_bound_args, {'arg2': value2})
-                the_test.assertDictEqual(self.all_args, {'arg1': value1,
-                                                         'arg2': value2})
-                the_test.assertDictEqual(self.bag, {'arg1': value1})
-                the_test.assertDictEqual(self.abog, {'arg1': value1,
-                                                     'arg2': value2})
+                the_test.assertDictEqual(self.all_args.copy(), {'arg1': value1,
+                                                                'arg2': value2})
+                the_test.assertDictEqual(self.bag.copy(), {'arg1': value1})
+                the_test.assertDictEqual(self.abog.copy(), {'arg1': value1,
+                                                            'arg2': value2})
 
             c.post_task_run = types.MethodType(post_task_run, c)
             c(value1)
@@ -332,16 +336,16 @@ class TaskTests(unittest.TestCase):
                                                            'arg2': value2,
                                                            'some_optional_kwargs': {'arg3': 3}})
                 the_test.assertDictEqual(self.default_bound_args, {})
-                the_test.assertDictEqual(self.all_args, self.bound_args)
-                the_test.assertDictEqual(self.bag, {'arg1': value1,
-                                                    'arg2': value2,
-                                                    'arg3': 3})
-                the_test.assertDictEqual(self.abog, {'arg1': value1,
-                                                     'arg2': value2,
-                                                     'arg3': 3})
+                the_test.assertDictEqual(self.all_args.copy(), self.bound_args)
+                the_test.assertDictEqual(self.bag.copy(), {'arg1': value1,
+                                                           'arg2': value2,
+                                                           'arg3': 3})
+                the_test.assertDictEqual(self.abog.copy(), {'arg1': value1,
+                                                            'arg2': value2,
+                                                            'arg3': 3})
 
             d.post_task_run = types.MethodType(post_task_run, d)
-            d(value1,  arg2=value2, arg3=3)
+            d(value1, arg2=value2, arg3=3)
 
     def test_sig_bind(self):
         test_app = Celery()
@@ -473,19 +477,23 @@ class ConvertToSerializableTests(unittest.TestCase):
         class someClass:
             def __repr__(_self):
                 return repr_str
+
         self.assertEqual(convert_to_serializable(someClass()), repr_str)
 
     def test_firex_serializable(self):
         class someClass:
             def firex_serializable(_self):
                 return self.d
+
             def __repr__(_self):
                 return "Shouldn't serialize to this"
+
         self.assertDictEqual(convert_to_serializable(someClass()), self.d)
 
     def test_some_parts_are_jsonifable(self):
         class UnJsonfiableClass:
             pass
+
         unjsonfiable = UnJsonfiableClass()
 
         with self.subTest('Outer data structure is a dict:'):
@@ -502,6 +510,7 @@ class ConvertToSerializableTests(unittest.TestCase):
         class someClass:
             def firex_serializable(_self):
                 return self.d
+
         serializable_obj = someClass()
         level3 = dict(level3=serializable_obj)
         level2 = dict(level2=level3)

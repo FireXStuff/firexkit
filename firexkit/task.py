@@ -18,7 +18,7 @@ from celery.states import REVOKED
 from contextlib import contextmanager
 from enum import Enum
 from logging.handlers import WatchedFileHandler
-from types import MethodType
+from types import MethodType, MappingProxyType
 from abc import abstractmethod
 from celery.app.task import Task
 from celery.local import PromiseProxy
@@ -195,6 +195,33 @@ def flame(flame_key=None, formatter=_default_flame_formatter, data_type='html', 
 def _set_taskid_in_db_key(result: AsyncResult, db, db_key):
     db.set(db_key, result.id)
     logger.debug(f'Key {db_key} set to {result.id}')
+
+
+class DictWillNotAllowWrites(dict):
+    def __init__(self, *args, _instrumentation_context=None, **kwargs):
+        self.context = _instrumentation_context
+        super().__init__(*args, **kwargs)
+
+    def warn(self):
+        if self.context:
+            try:
+                self.context.send_task_instrumentation_event(abog_written_to=True)
+            except Exception:
+                logger.exception('Could not send instrumentation event')
+        try:
+            raise DeprecationWarning('DEPRECATION NOTICE: self.bog does not allow assignment. '
+                                     'Please use self.abog.copy() to create a copy of the abog that you can write to. '
+                                     'This will become an aborting failure starting January 1, 2023.')
+        except DeprecationWarning as e:
+            logger.exception(e)
+
+    def __setitem__(self, *args, **kwargs):
+        self.warn()
+        super().__setitem__(*args, **kwargs)
+
+    def __delitem__(self, *args, **kwargs):
+        self.warn()
+        super().__setitem__(*args, **kwargs)
 
 
 class FireXTask(Task):
@@ -563,7 +590,7 @@ class FireXTask(Task):
             self.context.bog.update(result)
 
         # run any post converters attached to this task
-        converted = ConverterRegister.task_convert(task_name=self.name, pre_task=False, **self.bag)
+        converted = ConverterRegister.task_convert(task_name=self.name, pre_task=False, **self.bag.copy())
         self.context.bog.update(converted)
 
         if isinstance(result, dict):
@@ -573,7 +600,7 @@ class FireXTask(Task):
         # give sub-classes a chance to do something with the results
         self.post_task_run(result, extra_events=extra_events)
 
-        return self.bag
+        return self.bag.copy()
 
     def convert_results_if_returns_defined_by_task_definition(self, result):
         # If @returns decorator was used, we don't need to convert since that's taken care by the decorator
@@ -664,7 +691,7 @@ class FireXTask(Task):
                                         has_returns_from_previous_task=kwargs.get('chain_depth', 0) > 0)
 
         # run any "pre" converters attached to this task
-        converted = ConverterRegister.task_convert(task_name=self.name, pre_task=True, **self.bag)
+        converted = ConverterRegister.task_convert(task_name=self.name, pre_task=True, **self.bag.copy())
         self.context.bog.update(converted)
 
         # give sub-classes a chance to do something with the args
@@ -683,8 +710,8 @@ class FireXTask(Task):
         super(FireXTask, self).retry(*args, **kwargs)
 
     @property
-    def bag(self) -> dict:
-        return self.context.bog.get_bag()
+    def bag(self) -> MappingProxyType:
+        return MappingProxyType(self.context.bog.get_bag())
 
     @property
     def required_args(self) -> list:
@@ -752,12 +779,12 @@ class FireXTask(Task):
         return {**bound_args, **default_bound_args}
 
     @property
-    def all_args(self) -> dict:
-        return {**self.bound_args, **self.default_bound_args}
+    def all_args(self) -> MappingProxyType:
+        return MappingProxyType({**self.bound_args, **self.default_bound_args})
 
     @property
-    def abog(self) -> dict:
-        return {**self.bag, **self.default_bound_args}
+    def abog(self) -> DictWillNotAllowWrites:
+        return DictWillNotAllowWrites(_instrumentation_context=self, **self.bag, **self.default_bound_args)
 
     #######################
     # Enqueuing child tasks
