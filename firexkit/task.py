@@ -221,7 +221,7 @@ class DictWillNotAllowWrites(dict):
 
     def __delitem__(self, *args, **kwargs):
         self.warn()
-        super().__setitem__(*args, **kwargs)
+        super().__delitem__(*args, **kwargs)
 
 
 class FireXTask(Task):
