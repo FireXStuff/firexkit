@@ -198,9 +198,9 @@ def _set_taskid_in_db_key(result: AsyncResult, db, db_key):
 
 
 class DictWillNotAllowWrites(dict):
-    def __init__(self, *args, _instrumentation_context=None, **kwargs):
+    def __init__(self, _instrumentation_context=None, **kwargs):
         self.context = _instrumentation_context
-        super().__init__(*args, **kwargs)
+        super().__init__(**kwargs)
 
     def warn(self):
         if self.context:
@@ -804,7 +804,7 @@ class FireXTask(Task):
 
     @property
     def abog(self) -> DictWillNotAllowWrites:
-        return DictWillNotAllowWrites(_instrumentation_context=self, **self.bag, **self.default_bound_args)
+        return DictWillNotAllowWrites(_instrumentation_context=self, **{**self.bag, **self.default_bound_args})
 
     #######################
     # Enqueuing child tasks
