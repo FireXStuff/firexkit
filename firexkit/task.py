@@ -1077,7 +1077,7 @@ class FireXTask(Task):
                                                **kwargs)
 
     def enqueue_in_parallel(self, chains, max_parallel_chains=15, wait_for_completion=True,
-                            raise_exception_on_failure=False):
+                            raise_exception_on_failure=False, **kwargs):
         """ This method executes the provided list of Signatures/Chains in parallel
         and returns the associated list of "async_result" objects.
         The results are returned in the same order as the input Signatures/Chains."""
@@ -1090,7 +1090,7 @@ class FireXTask(Task):
                 scheduled.remove(async_res)
             # Schedule the next child
             logger.debug(f'Enqueueing: {c.get_label()}')
-            promise = self.enqueue_child(c)
+            promise = self.enqueue_child(c, **kwargs)
             scheduled.append(promise)
             promises.append(promise)
         if wait_for_completion or raise_exception_on_failure:
