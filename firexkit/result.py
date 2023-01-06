@@ -419,8 +419,10 @@ def wait_on_async_results(results,
 
             result_state = handle_broker_timeout(getattr, args=(result, 'state'))
             if result_state == REVOKED:
-                #  wait for revoked tasks to actually finish running
-                wait_for_running_tasks_from_results([result])
+                # Wait for revoked tasks to actually finish running
+                # Somewhat long max_wait in case a task does work when revoked, like
+                # killing a child run launched by the task.
+                wait_for_running_tasks_from_results([result], max_wait=5*60)
                 raise ChainRevokedException(task_id=str(result),
                                             task_name=get_task_name_from_result(result))
             if result_state == PENDING:
