@@ -273,6 +273,11 @@ def func_e(x=None, **kwargs):
     pass  # pragma: no cover
 
 
+# noinspection PyUnusedLocal
+def func_f(*args, x):
+    pass  # pragma: no cover
+
+
 class BogTests(unittest.TestCase):
 
     sig_func_a = inspect.signature(func_a)
@@ -280,6 +285,7 @@ class BogTests(unittest.TestCase):
     sig_func_c = inspect.signature(func_c)
     sig_func_d = inspect.signature(func_d)
     sig_func_e = inspect.signature(func_e)
+    sig_func_f = inspect.signature(func_f)
 
     def test_passing_exact_requirement_from_bog(self):
         previous_returns = {'x': 1}
@@ -454,6 +460,23 @@ class BogTests(unittest.TestCase):
                 self.assertListEqual(args, [new_value])
                 self.assertDictEqual(kwargs, {})
                 self.assertDictEqual(bog.get_bag(), {'x': new_value})
+
+    def test_bog_update_var_positional(self):
+        value = 3
+        input_args = (1,)
+        for sig in [self.sig_func_f]:
+            with self.subTest(sig.__str__()):
+                bog = BagOfGoodies(sig, input_args, {'x': value})
+                args, kwargs = bog.split_for_signature()
+                self.assertDictEqual(kwargs, {'x': value})
+                self.assertListEqual(args, [1])
+                self.assertDictEqual(bog.get_bag(), {'args': (1,), 'x': value})
+                new_value = 2
+                bog.update({'x': new_value})
+                args, kwargs = bog.split_for_signature()
+                self.assertListEqual(args, [1])
+                self.assertDictEqual(kwargs, {'x': new_value})
+                self.assertDictEqual(bog.get_bag(), {'args': (1,), 'x': new_value})
 
     def test_update_masks_default(self):
         # noinspection PyUnusedLocal

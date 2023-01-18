@@ -108,7 +108,21 @@ class BagOfGoodies(object):
                 arguments[k] = v
             elif k in self.sig.parameters or self.varkeyword:
                 self.kwargs[k] = v
-        self.args = list(arguments.values())
+
+        new_args = []
+        for arg, val in arguments.items():
+            param = self.sig.parameters[arg]
+
+            if param.kind != param.VAR_POSITIONAL:
+                new_args.append(val)
+            else:
+                try:
+                    new_args.extend(val)
+                except TypeError as e:
+                    #  Did we update() a VAR_POSITIONAL arg with a non-iterable arg? Don't do that!
+                    raise ValueError(f'VAR_POSITIONAL argument {arg} should always be an iterable') from e
+
+        self.args = new_args
 
     def split_for_signature(self) -> ([], {}):
         return self.args, self.kwargs
