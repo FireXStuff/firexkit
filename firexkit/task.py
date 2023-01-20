@@ -357,11 +357,13 @@ class FireXTask(Task):
         self.context.enqueued_children = {}
         self.context.bog = None
 
-        # Favour @app.task(flame=...) driven-style when present over @flame() annotation style.
         # Flame configs need to be on self.context b/c they write to flame_data_configs[k]['on_next'] for collapse ops.
         # Might make more sense to rework that to avoid flame data on context.
-        self.context.flame_configs = self.get_task_flame_configs() or deepcopy(getattr(self.undecorated,
-                                                                                       "flame_data_configs", {}))
+        self.context.flame_configs = (
+            deepcopy(getattr(self.undecorated, "flame_data_configs", {}))
+            # Overwrite @app.task(flame=...) driven-style when present over @flame() annotation style.
+            | self.get_task_flame_configs()
+        )
 
     def get_module_file_location(self):
         return sys.modules[self.__module__].__file__
