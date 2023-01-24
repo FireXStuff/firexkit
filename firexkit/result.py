@@ -685,6 +685,22 @@ def get_results(result: AsyncResult,
         return results2tuple(extracted_dict, return_keys)
 
 
+def get_results_with_default(result: AsyncResult,
+                             default=None,
+                             error_msg: str = None,
+                             **kwargs):
+    if result.successful():
+        return get_results(result, **kwargs)
+    else:
+        if isinstance(getattr(result, 'result'), Exception):
+            exc_info = result.result
+        else:
+            exc_info = None
+        error_msg = error_msg or f'Unable to get result from {result}'
+        logger.error(error_msg, exc_info=exc_info)
+        return default
+
+
 FIREX_AR_REFS_ATTR = '__firex_ar_refs__'
 
 
