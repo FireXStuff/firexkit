@@ -3,7 +3,6 @@ import time
 from collections import namedtuple
 import weakref
 
-import traceback
 from pprint import pformat
 from typing import Union, Iterator
 
