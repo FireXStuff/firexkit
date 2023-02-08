@@ -145,3 +145,32 @@ body {
 .header-link a:hover {
   color: #2980ff;
 }
+
+.wrap-collapsible > input[type='checkbox'] { display: none; }
+
+.lbl-toggle::before {
+  content: '[+]';
+}
+
+.wrap-collapsible {
+  display: inline;
+}
+
+.collapsible-content {
+  display: none;
+  max-height: 0px;
+  overflow: hidden;
+}
+
+.wrap-collapsible > .toggle:checked + .lbl-toggle + span + .collapsible-content {
+  display: inline;
+  max-height: 100%;
+}
+
+.wrap-collapsible > .toggle:checked + .lbl-toggle::before {
+  content: '[-]';
+}
+
+.non-collapsing {
+  padding-left: 23px;
+}
