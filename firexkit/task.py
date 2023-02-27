@@ -1277,7 +1277,7 @@ class FireXTask(Task):
                 try:
                     return formatter(*fromatter_args, **formatter_kwargs)
                 except Exception as e:
-                    logger.error(e)
+                    logger.exception(e)
                     return None
 
             formatted_data = {}
