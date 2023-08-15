@@ -1456,6 +1456,11 @@ def convert_to_serializable(obj, max_recursive_depth=10, _depth=0):
         except TypeError:
             pass # e.g. enums
 
+    if isinstance(obj, tuple) and hasattr(obj, '_fields') and hasattr(obj, '_asdict'):
+        # Named tuple
+        # noinspection PyProtectedMember
+        return obj._asdict()
+
     if is_jsonable(obj):
         return obj
 
