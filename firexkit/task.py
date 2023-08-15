@@ -1459,7 +1459,7 @@ def convert_to_serializable(obj, max_recursive_depth=10, _depth=0):
     if isinstance(obj, tuple) and hasattr(obj, '_fields') and hasattr(obj, '_asdict'):
         # Named tuple
         # noinspection PyProtectedMember
-        return convert_to_serializable(obj._asdict(), max_recursive_depth, _depth+1)
+        obj = obj._asdict()
 
     if is_jsonable(obj):
         return obj
