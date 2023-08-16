@@ -548,7 +548,7 @@ class FireXTask(Task):
                     results_list.append('  %d. %s: %r' % (n, k, v))
                     n += 1
             else:
-                results_list.append('  %r' % result)
+                results_list.append(f'  {result!r}')
         if results_list:
             content = 'RETURNS\n' + '\n'.join(results_list)
         logger.debug(banner('COMPLETED: %s' % self.name, ch='*', content=content, length=100),
