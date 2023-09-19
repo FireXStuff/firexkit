@@ -6,6 +6,7 @@ import os
 import textwrap
 from collections import OrderedDict
 import inspect
+from datetime import datetime
 from functools import partial
 from typing import Callable, Iterable, Optional, Union
 from urllib.parse import urljoin
@@ -1446,9 +1447,13 @@ def _custom_serializers(obj) -> str:
 
     return None
 
+
 def convert_to_serializable(obj, max_recursive_depth=10, _depth=0):
     if hasattr(obj, 'firex_serializable'):
         return obj.firex_serializable()
+
+    if isinstance(obj, datetime):
+        obj = obj.isoformat()
 
     if dataclasses.is_dataclass(obj):
         try:
