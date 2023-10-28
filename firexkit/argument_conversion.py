@@ -38,7 +38,7 @@ class ConverterRegister:
 
         return task.convert(pre_task=pre_task, **kwargs)
 
-    def convert(self, pre_task=True, **kwargs) -> dict:
+    def convert(self, pre_task=True, verbose=True, **kwargs) -> dict:
         """ Run all registered converters
          :param pre_task: Converters can be registered to run before or after a task runs.
          """
@@ -56,7 +56,8 @@ class ConverterRegister:
         converters = self._pre_converters if pre_task else self._post_converters
 
         for node in self.get_visit_order(pre_task):
-            logger.debug("Running converter " + node)
+            if verbose:
+                logger.debug("Running converter " + node)
             start = datetime.now()
             try:
                 converted_dict = converters[node].func(new_kwargs)
@@ -64,7 +65,9 @@ class ConverterRegister:
                 logger.error("Error in converter " + node)
                 raise
             done = datetime.now()
-            logger.debug("Took %.3f seconds to convert %s" % ((done - start).total_seconds(), node))
+            delta = (done - start).total_seconds()
+            if verbose or delta >= 0.001:
+                logger.debug("Took %.3f seconds to convert %s" % (delta, node))
             # handle when None is returned
             if converted_dict:
                 new_kwargs.update(converted_dict)
