@@ -8,7 +8,7 @@ from celery.utils.log import get_task_logger
 logger = get_task_logger(__name__)
 
 
-def get_mem(pid=None, gc_collect=True):
+def get_process_memory_info(pid=None, gc_collect=True):
     if gc_collect:
         gc.enable()
         gc.collect()
@@ -30,20 +30,20 @@ def tracemalloc_compare(snapshot_initial, snapshot_final, top_differences=3):
 
 
 @contextmanager
-def mem_delta(prefix='', trace_mem=True):
+def process_memory_delta(prefix='', trace_mem=True):
     snapshot_initial = None
     output = []
     if prefix:
         prefix = f'[{prefix}]'
     frame1 = inspect.stack()[2]
-    mem_initial = get_mem()
+    mem_initial = get_process_memory_info()
     if trace_mem:
         tracemalloc.start(20)
         snapshot_initial = tracemalloc.take_snapshot()
     try:
         yield
     finally:
-        mem_final = get_mem()
+        mem_final = get_process_memory_info()
         vms_delta = mem_final.vms - mem_initial.vms
         rss_delta = mem_final.rss - mem_initial.rss
         frame2 = inspect.stack()[2]
