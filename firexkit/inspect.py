@@ -87,3 +87,7 @@ def get_active_queues(**kwargs):
 def get_task(**kwargs):
     kwargs.pop('inspect_method', None)
     return inspect_with_retry(inspect_method='query_task', **kwargs)
+
+def ping(**kwargs):
+    kwargs.pop('inspect_method', None)
+    return inspect_with_retry(inspect_method='ping', **kwargs)
