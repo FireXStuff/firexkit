@@ -25,13 +25,14 @@ from celery.app.task import Task
 from celery.local import PromiseProxy
 from celery.signals import task_prerun, task_postrun, task_revoked
 from celery.utils.log import get_task_logger, get_logger
+
 from firexkit.bag_of_goodies import BagOfGoodies
 from firexkit.argument_conversion import ConverterRegister
 from firexkit.result import get_tasks_names_from_results, wait_for_any_results, \
     RETURN_KEYS_KEY, wait_on_async_results_and_maybe_raise, get_result_logging_name, ChainInterruptedException, \
     ChainRevokedException, last_causing_chain_interrupted_exception, \
     wait_for_running_tasks_from_results, WaitOnChainTimeoutError, get_results, \
-    get_task_name_from_result, first_non_chain_interrupted_exception
+    get_task_name_from_result, first_non_chain_interrupted_exception, forget_chain_results
 from firexkit.resources import get_firex_css_filepath, get_firex_logo_filepath
 from firexkit.firexkit_common import JINJA_ENV
 import time
@@ -833,6 +834,10 @@ class FireXTask(Task):
         if child_result not in self.context.enqueued_children:
             self.context.enqueued_children[child_result] = {}
 
+    def _remove_enqueued_child(self, child_result):
+        if child_result in self.context.enqueued_children:
+            del(self.context.enqueued_children[child_result])
+
     def _update_child_state(self, child_result, state):
         if child_result not in self.context.enqueued_children:
             self._add_enqueued_child(child_result)
@@ -849,6 +854,15 @@ class FireXTask(Task):
         """Wait for all enqueued child tasks to run and complete"""
         child_results = self.pending_enqueued_children if pending_only else self.enqueued_children
         self.wait_for_specific_children(child_results=child_results, **kwargs)
+
+    def forget_child_result(self,
+                            child_result: AsyncResult,
+                            forget_chain_head_node_result: bool = False,
+                            do_not_forget_node_names: Optional[Iterable[str]] = None):
+        forget_chain_results(child_result,
+                             forget_chain_head_node_result=forget_chain_head_node_result,
+                             do_not_forget_node_names=do_not_forget_node_names)
+        self._remove_enqueued_child(child_result)
 
     def wait_for_specific_children(self, child_results, **kwargs):
         """Wait for the explicitly provided child_results to run and complete"""

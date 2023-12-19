@@ -4,7 +4,7 @@ from collections import namedtuple
 import weakref
 
 from pprint import pformat
-from typing import Union, Iterator
+from typing import Union, Iterator, Optional, Iterable
 
 from celery import current_app
 from celery.result import AsyncResult
@@ -775,3 +775,43 @@ def last_causing_chain_interrupted_exception(ex):
     while e.__cause__ is not None and isinstance(e.__cause__, ChainInterruptedException):
         e = e.__cause__
     return e
+
+
+def climb_up_until_null_parent(result: AsyncResult) -> AsyncResult:
+    r = result
+    while r.parent is not None:
+        r = r.parent
+    return r
+
+
+def forget_subtree_results(head_node_result: AsyncResult,
+                           do_not_forget_nodes: Optional[Iterable[AsyncResult]] = None,
+                           do_not_forget_node_names: Optional[Iterable[str]] = None) -> None:
+    subtree_nodes = set(head_node_result.graph.adjacent.keys())
+    if do_not_forget_nodes:
+        do_not_forget_nodes_ids = {n.id for n in do_not_forget_nodes}
+        subtree_nodes = {n for n in subtree_nodes if n.id not in do_not_forget_nodes_ids}
+    if do_not_forget_node_names:
+        subtree_nodes = {n for n in subtree_nodes if get_task_name_from_result(n) not in do_not_forget_node_names}
+    logger.debug(f'Forgetting results for {len(subtree_nodes)} tasks rooted at '
+                 f'{get_result_logging_name(head_node_result)}')
+    for node in subtree_nodes:
+        logger.debug(f'Forgetting result: {get_result_logging_name(node)}')
+        node.forget()
+
+
+def forget_chain_results(result: AsyncResult,
+                         forget_chain_head_node_result: bool = True,
+                         do_not_forget_nodes: Optional[Iterable[AsyncResult]] = None,
+                         do_not_forget_node_names: Optional[Iterable[str]] = None) -> None:
+    head_node_result = climb_up_until_null_parent(result)
+
+    _do_not_forget_nodes = set()
+    if forget_chain_head_node_result is False:
+        _do_not_forget_nodes.add(head_node_result)
+    if do_not_forget_nodes:
+        _do_not_forget_nodes.union(do_not_forget_nodes)
+
+    forget_subtree_results(head_node_result=head_node_result,
+                           do_not_forget_nodes=_do_not_forget_nodes,
+                           do_not_forget_node_names=do_not_forget_node_names)
