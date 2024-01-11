@@ -13,11 +13,15 @@ def get_process_memory_info(pid=None, gc_collect=True):
         gc.enable()
         gc.collect()
     process = psutil.Process(pid)
-    return process.memory_info()
+    return process.memory_full_info()
 
 
-def bytes2mebibytes(input_in_b):
-    return input_in_b/(1024**2)
+def human_readable_bytes(num, suffix="B"):
+    for unit in ("", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi"):
+        if abs(num) < 1024.0:
+            return f"{num}{unit}{suffix}" if unit == '' else f"{num:3.1f}{unit}{suffix}"
+        num /= 1024.0
+    return f"{num:.1f}Yi{suffix}"
 
 
 def tracemalloc_compare(snapshot_initial, snapshot_final, top_differences=3):
@@ -48,7 +52,7 @@ def process_memory_delta(prefix='', trace_mem=True):
         rss_delta = mem_final.rss - mem_initial.rss
         frame2 = inspect.stack()[2]
         output += [f'{prefix}[{frame1.function}:{frame1.lineno}->{frame2.function}:{frame2.lineno}]']
-        output += [f'rss delta={bytes2mebibytes(rss_delta):.3f} MiB, vms delta={bytes2mebibytes(vms_delta):.3f} MiB']
+        output += [f'rss delta={human_readable_bytes(rss_delta)}, vms delta={human_readable_bytes(vms_delta)}']
         if trace_mem:
             snapshot_final = tracemalloc.take_snapshot()
             output += tracemalloc_compare(snapshot_initial, snapshot_final)
