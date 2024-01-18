@@ -1,6 +1,6 @@
 import copy
 import time
-from collections import namedtuple
+from collections import namedtuple, deque
 import weakref
 
 from pprint import pformat
@@ -17,6 +17,8 @@ from firexkit.revoke import RevokedRequests
 
 RETURN_KEYS_KEY = '__task_return_keys'
 _TASK_POST_RUN_KEY = 'TASK_POST_RUN'
+
+ResultId = Union[AsyncResult, str]
 
 logger = get_task_logger(__name__)
 
@@ -784,34 +786,85 @@ def climb_up_until_null_parent(result: AsyncResult) -> AsyncResult:
     return r
 
 
+def get_result_id(r: ResultId) -> str:
+    """Return the string id of r if it was an AsyncResult, otherwise returns r"""
+    return r.id if isinstance(r, AsyncResult) else r
+
+
+def get_all_children(node, timeout=180, skip_subtree_nodes: Optional[list[ResultId]] = None) -> Iterator[AsyncResult]:
+    """Iterate the children of node, skipping any nodes found in skip_subtree_nodes"""
+    stack = deque([node])
+    timeout_time = time.monotonic() + timeout
+    while stack:
+        node = stack.popleft()
+        node_name = get_result_logging_name(node)
+        if skip_subtree_nodes and get_result_id(node) in skip_subtree_nodes:
+            continue
+        yield node
+
+        while time.monotonic() < timeout_time and not node.ready():
+            logger.debug(f'{node_name} state is still {node.state}...sleeping and retrying')
+            time.sleep(0.5)
+        stack.extend(child for child in node.children or [])
+
+
+def forget_single_async_result(r: AsyncResult):
+    """Forget the result of this task
+
+    AsyncResult.forget() also forgets the parent (which is not always desirable), so, we had to implement our own
+    """
+    logger.debug(f'Forgetting result: {get_result_logging_name(r)}')
+    r._cache = None
+    r.backend.forget(r.id)
+
+
 def forget_subtree_results(head_node_result: AsyncResult,
-                           do_not_forget_nodes: Optional[Iterable[AsyncResult]] = None,
-                           do_not_forget_node_names: Optional[Iterable[str]] = None) -> None:
-    subtree_nodes = set(head_node_result.graph.adjacent.keys())
-    if do_not_forget_nodes:
-        do_not_forget_nodes_ids = {n.id for n in do_not_forget_nodes}
-        subtree_nodes = {n for n in subtree_nodes if n.id not in do_not_forget_nodes_ids}
-    if do_not_forget_node_names:
-        subtree_nodes = {n for n in subtree_nodes if get_task_name_from_result(n) not in do_not_forget_node_names}
-    logger.debug(f'Forgetting results for {len(subtree_nodes)} tasks rooted at '
-                 f'{get_result_logging_name(head_node_result)}')
-    for node in subtree_nodes:
-        logger.debug(f'Forgetting result: {get_result_logging_name(node)}')
-        node.forget()
+                           skip_subtree_nodes: Optional[Iterable[ResultId]] = None,
+                           do_not_forget_nodes: Optional[Iterable[ResultId]] = None) -> None:
+    """Forget results of the subtree rooted at head_node_result, while skipping subtrees in skip_subtree_nodes,
+    as well as nodes in do_not_forget_nodes
+    """
+
+    # Must get all the elements from the get_all_children() generator first!
+    # We can't process the forgetting of one element at a time per iteration because the parent/children relationship
+    # might be lost once we forget a node
+    #
+    subtree_nodes = set(get_all_children(head_node_result, skip_subtree_nodes=skip_subtree_nodes))
+
+    do_not_forget_nodes_ids = {get_result_id(n) for n in do_not_forget_nodes} if do_not_forget_nodes else {}
+
+    nodes_to_forget = {n for n in subtree_nodes if n.id not in do_not_forget_nodes_ids}
+
+    msg = [f'Forgetting {len(nodes_to_forget)} results for tree root {get_result_logging_name(head_node_result)}']
+    if skip_subtree_nodes:
+        msg += [f'Skipping subtrees: {[get_result_logging_name(r) for r in skip_subtree_nodes]}']
+    if do_not_forget_nodes_ids:
+        msg += [f'Skipping nodes: {[get_result_logging_name(r) for r in do_not_forget_nodes_ids]}']
+    logger.debug('\n'.join(msg))
+
+    for node in nodes_to_forget:
+        forget_single_async_result(node)
 
 
 def forget_chain_results(result: AsyncResult,
                          forget_chain_head_node_result: bool = True,
-                         do_not_forget_nodes: Optional[Iterable[AsyncResult]] = None,
-                         do_not_forget_node_names: Optional[Iterable[str]] = None) -> None:
+                         skip_subtree_nodes: Optional[Iterable[ResultId]] = None,
+                         do_not_forget_nodes: Optional[Iterable[AsyncResult]] = None) -> None:
+    """Forget results of the tree rooted at the "chain-head" of result, while skipping subtrees in skip_subtree_nodes,
+    as well as nodes in do_not_forget_nodes.
+
+    If forget_chain_head_node_result is True (default), do not forget the head of the result chain
+    """
+    _do_not_forget_nodes = set()
+
+    # Get the head of the result chain, i.e., in chain A|B|C, if result is C, find A
     head_node_result = climb_up_until_null_parent(result)
 
-    _do_not_forget_nodes = set()
     if forget_chain_head_node_result is False:
         _do_not_forget_nodes.add(head_node_result)
     if do_not_forget_nodes:
-        _do_not_forget_nodes.union(do_not_forget_nodes)
+        _do_not_forget_nodes.update(do_not_forget_nodes)
 
     forget_subtree_results(head_node_result=head_node_result,
-                           do_not_forget_nodes=_do_not_forget_nodes,
-                           do_not_forget_node_names=do_not_forget_node_names)
+                           skip_subtree_nodes=skip_subtree_nodes,
+                           do_not_forget_nodes=_do_not_forget_nodes)

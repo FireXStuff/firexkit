@@ -40,6 +40,10 @@ import time
 REPLACEMENT_TASK_NAME_POSTFIX = '_orig'
 FIREX_REVOKE_COMPLETE_EVENT_TYPE = 'task-firex-revoked'
 
+REDIS_DB_KEY_FOR_RESULTS_WITH_REPORTS = 'FIREX_RESULTS_WITH_REPORTS'
+REDIS_DB_KEY_PREFIX_FOR_ENQUEUE_ONCE_UID = 'ENQUEUE_CHILD_ONCE_UID_'
+REDIS_DB_KEY_PREFIX_FOR_ENQUEUE_ONCE_COUNT = 'ENQUEUE_CHILD_ONCE_COUNT_'
+
 logger = get_task_logger(__name__)
 
 ################################################################
@@ -129,7 +133,9 @@ def create_collapse_ops(flex_collapse_ops_spec):
 def expand_self_op():
     return {'operation': 'expand', 'targets': ['self']}
 
+
 FLAME_COLLAPSE_KEY = '_default_display'
+
 
 def flame_collapse_formatter(ops, task):
     filled_ops = []
@@ -244,6 +250,37 @@ class DictWillNotAllowWrites(dict):
     def update(self, *args, **kwargs):
         self.warn()
         super().update(*args, **kwargs)
+
+
+def get_enqueue_child_once_uid_dbkey(enqueue_once_key: str) -> str:
+    return f'{REDIS_DB_KEY_PREFIX_FOR_ENQUEUE_ONCE_UID}{enqueue_once_key}'
+
+
+def get_enqueue_child_once_count_dbkey(enqueue_once_key: str) -> str:
+    return f'{REDIS_DB_KEY_PREFIX_FOR_ENQUEUE_ONCE_COUNT}{enqueue_once_key}'
+
+
+def get_current_enqueue_child_once_uid_dbkeys(db) -> list[str]:
+    return db.client.keys(get_enqueue_child_once_uid_dbkey('*'))
+
+
+def get_current_enqueue_child_once_uids(db) -> set[str]:
+    """Returns a set of all task/result ids that were executed with enqueue_once"""
+
+    # First, we need to find all the enqueue_once keys
+    keys = get_current_enqueue_child_once_uid_dbkeys(db)
+    # Then we get the task/result ids stored in those keys
+    return {v.decode() for v in db.mget(keys)}
+
+
+def add_task_result_with_report_to_db(db, result_id: str):
+    """Append task id to the list of tasks with reports (e.g. tasks decorated with @email)"""
+    db.client.rpush(REDIS_DB_KEY_FOR_RESULTS_WITH_REPORTS, result_id)
+
+
+def get_current_reports_uids(db) -> set[str]:
+    """Return the list of task/results ids for all tasks with reports (e.g. @email) executed so far"""
+    return {v.decode() for v in db.client.lrange(REDIS_DB_KEY_FOR_RESULTS_WITH_REPORTS, 0, -1)}
 
 
 class FireXTask(Task):
@@ -453,6 +490,14 @@ class FireXTask(Task):
     def called_as_orig(self):
         return True if self.name.endswith(REPLACEMENT_TASK_NAME_POSTFIX) else False
 
+    def has_report_meta(self) -> bool:
+        """Does this task generate a report (e.g. decorated with @email)?"""
+        return hasattr(self, 'report_meta')
+
+    def add_task_result_with_report_to_db(self):
+        """Maintain a list in the backend of all executed tasks that will generate reports"""
+        return add_task_result_with_report_to_db(self.app.backend,  self.request.id)
+
     @abstractmethod
     def pre_task_run(self, extra_events: Optional[dict] = None):
         """
@@ -468,6 +513,11 @@ class FireXTask(Task):
 
         # Send a custom task-started-info event with the args
         if not self.request.called_directly:
+            if self.has_report_meta():
+                # If the task generates a report, append the task id
+                # to the list in the backend of all executed tasks that  generate reports
+                self.add_task_result_with_report_to_db()
+
             self.send_event('task-started-info',
                             firex_bound_args=convert_to_serializable(bound_args),
                             firex_default_bound_args=convert_to_serializable(default_bound_args),
@@ -858,11 +908,48 @@ class FireXTask(Task):
     def forget_child_result(self,
                             child_result: AsyncResult,
                             forget_chain_head_node_result: bool = False,
-                            do_not_forget_node_names: Optional[Iterable[str]] = None):
+                            do_not_forget_report_nodes: bool = True,
+                            do_not_forget_enqueue_once_nodes: bool = True):
+
+        """Forget results of the tree rooted at the "chain-head" of child_result, while skipping subtrees in
+        skip_subtree_nodes, as well as nodes in do_not_forget_nodes.
+
+        If forget_chain_head_node_result is True (default False), also forget the "chain head" of child_result
+
+        If do_not_forget_report_nodes is True (default), do not forget report nodes (e.g. nodes decorated with @email)
+
+        If do_not_forget_enqueue_once_nodes is True (default), do not forget subtrees rooted at nodes that were enqueued
+        with enqueue_once
+        """
+        logger.debug('Forgetting results')
+
+        enqueue_once_subtree_nodes = None
+        if do_not_forget_enqueue_once_nodes:
+            enqueue_once_subtree_nodes = get_current_enqueue_child_once_uids(self.backend)
+            if enqueue_once_subtree_nodes:
+                logger.debug(f'Enqueue once subtree nodes: {enqueue_once_subtree_nodes}')
+
+        report_nodes = None
+        if do_not_forget_report_nodes:
+            report_nodes = get_current_reports_uids(self.backend)
+            if report_nodes:
+                logger.debug(f'Report nodes: {report_nodes}')
+
         forget_chain_results(child_result,
                              forget_chain_head_node_result=forget_chain_head_node_result,
-                             do_not_forget_node_names=do_not_forget_node_names)
+                             skip_subtree_nodes=enqueue_once_subtree_nodes,
+                             do_not_forget_nodes=report_nodes)
+        # Since we forget the child, we need to also remove it from the list of enqueued_children
         self._remove_enqueued_child(child_result)
+
+    def forget_specific_children_results(self, child_results: list[AsyncResult], **kwargs):
+        """Forget results for the explicitly provided child_results"""
+        for child in child_results:
+            self.forget_child_result(child, **kwargs)
+
+    def forget_enqueued_children_results(self, **kwargs):
+        """Forget results for the enqueued children of current task"""
+        self.forget_specific_children_results(self.enqueued_children, **kwargs)
 
     def wait_for_specific_children(self, child_results, **kwargs):
         """Wait for the explicitly provided child_results to run and complete"""
@@ -1025,8 +1112,8 @@ class FireXTask(Task):
     def enqueue_child_once(self, *args, enqueue_once_key, block=False, **kwargs):
         """See  :`meth:`enqueue_child_once_and_extract`
         """
-        enqueue_child_once_uid_dbkey = 'ENQUEUE_CHILD_ONCE_UID_' + enqueue_once_key
-        enqueue_child_once_count_dbkey = 'ENQUEUE_CHILD_ONCE_COUNT_' + enqueue_once_key
+        enqueue_child_once_uid_dbkey = get_enqueue_child_once_uid_dbkey(enqueue_once_key)
+        enqueue_child_once_count_dbkey = get_enqueue_child_once_count_dbkey(enqueue_once_key)
 
         if self.request.retries > 0:
             # previous run failed, so we assume (possibly incorrectly!) this child also failed
