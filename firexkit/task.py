@@ -907,14 +907,12 @@ class FireXTask(Task):
 
     def forget_child_result(self,
                             child_result: AsyncResult,
-                            forget_chain_head_node_result: bool = False,
                             do_not_forget_report_nodes: bool = True,
-                            do_not_forget_enqueue_once_nodes: bool = True):
+                            do_not_forget_enqueue_once_nodes: bool = True,
+                            **kwargs):
 
         """Forget results of the tree rooted at the "chain-head" of child_result, while skipping subtrees in
         skip_subtree_nodes, as well as nodes in do_not_forget_nodes.
-
-        If forget_chain_head_node_result is True (default False), also forget the "chain head" of child_result
 
         If do_not_forget_report_nodes is True (default), do not forget report nodes (e.g. nodes decorated with @email)
 
@@ -936,9 +934,9 @@ class FireXTask(Task):
                 logger.debug(f'Report nodes: {report_nodes}')
 
         forget_chain_results(child_result,
-                             forget_chain_head_node_result=forget_chain_head_node_result,
                              skip_subtree_nodes=enqueue_once_subtree_nodes,
-                             do_not_forget_nodes=report_nodes)
+                             do_not_forget_nodes=report_nodes,
+                             **kwargs)
         # Since we forget the child, we need to also remove it from the list of enqueued_children
         self._remove_enqueued_child(child_result)
 
@@ -951,7 +949,7 @@ class FireXTask(Task):
         """Forget results for the enqueued children of current task"""
         self.forget_specific_children_results(self.enqueued_children, **kwargs)
 
-    def wait_for_specific_children(self, child_results, **kwargs):
+    def wait_for_specific_children(self, child_results, forget: bool = False, **kwargs):
         """Wait for the explicitly provided child_results to run and complete"""
         if isinstance(child_results, AsyncResult):
             child_results = [child_results]
@@ -961,10 +959,13 @@ class FireXTask(Task):
                 wait_on_async_results_and_maybe_raise(child_results, caller_task=self, **kwargs)
             finally:
                 [self._update_child_state(child_result, self._UNBLOCKED) for child_result in child_results]
+                if forget:
+                    self.wait_for_specific_children(child_results)
 
     def enqueue_child(self, chain: Signature, add_to_enqueued_children: bool = True, block: bool = False,
                       raise_exception_on_failure: bool = None,
                       apply_async_epilogue: Callable[[AsyncResult], None] = None, apply_async_options=None,
+                      forget: bool = False,
                       **kwargs) -> AsyncResult:
         """Schedule a child task to run"""
 
@@ -996,6 +997,8 @@ class FireXTask(Task):
             finally:
                 if add_to_enqueued_children:
                     self._update_child_state(child_result, self._UNBLOCKED)
+                if forget:
+                    self.wait_for_specific_children([child_result])
         return child_result
 
     def enqueue_child_and_get_results(self,
@@ -1060,6 +1063,7 @@ class FireXTask(Task):
                                    extract_task_returns_only: bool = False,
                                    enqueue_once_key: str = '',
                                    extract_from_parents: bool = True,
+                                   forget: bool = False,
                                    **kwargs) -> Union[tuple, dict]:
         """Apply a ``chain``, and extract results from it.
 
@@ -1103,11 +1107,16 @@ class FireXTask(Task):
                                                      block=True,
                                                      **kwargs)
 
-        return get_results(result_promise,
-                           return_keys=return_keys,
-                           merge_children_results=extract_from_children,
-                           return_keys_only=extract_task_returns_only,
-                           extract_from_parents=extract_from_parents)
+        results = get_results(result_promise,
+                              return_keys=return_keys,
+                              merge_children_results=extract_from_children,
+                              return_keys_only=extract_task_returns_only,
+                              extract_from_parents=extract_from_parents)
+
+        if forget:
+            self.forget_specific_children_results([result_promise])
+
+        return results
 
     def enqueue_child_once(self, *args, enqueue_once_key, block=False, **kwargs):
         """See  :`meth:`enqueue_child_once_and_extract`
