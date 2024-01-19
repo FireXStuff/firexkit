@@ -960,7 +960,7 @@ class FireXTask(Task):
             finally:
                 [self._update_child_state(child_result, self._UNBLOCKED) for child_result in child_results]
                 if forget:
-                    self.wait_for_specific_children(child_results)
+                    self.forget_specific_children_results(child_results)
 
     def enqueue_child(self, chain: Signature, add_to_enqueued_children: bool = True, block: bool = False,
                       raise_exception_on_failure: bool = None,
@@ -998,7 +998,7 @@ class FireXTask(Task):
                 if add_to_enqueued_children:
                     self._update_child_state(child_result, self._UNBLOCKED)
                 if forget:
-                    self.wait_for_specific_children([child_result])
+                    self.forget_specific_children_results([child_result])
         return child_result
 
     def enqueue_child_and_get_results(self,
