@@ -848,12 +848,12 @@ def forget_subtree_results(head_node_result: AsyncResult,
 
 def forget_chain_results(result: AsyncResult,
                          forget_chain_head_node_result: bool = True,
-                         skip_subtree_nodes: Optional[Iterable[ResultId]] = None,
-                         do_not_forget_nodes: Optional[Iterable[AsyncResult]] = None) -> None:
+                         do_not_forget_nodes: Optional[Iterable[AsyncResult]] = None,
+                         **kwargs) -> None:
     """Forget results of the tree rooted at the "chain-head" of result, while skipping subtrees in skip_subtree_nodes,
     as well as nodes in do_not_forget_nodes.
 
-    If forget_chain_head_node_result is True (default), do not forget the head of the result chain
+    If forget_chain_head_node_result is False (default True), do not forget the head of the result chain
     """
     _do_not_forget_nodes = set()
 
@@ -866,5 +866,5 @@ def forget_chain_results(result: AsyncResult,
         _do_not_forget_nodes.update(do_not_forget_nodes)
 
     forget_subtree_results(head_node_result=head_node_result,
-                           skip_subtree_nodes=skip_subtree_nodes,
-                           do_not_forget_nodes=_do_not_forget_nodes)
+                           do_not_forget_nodes=_do_not_forget_nodes,
+                           **kwargs)
