@@ -246,13 +246,13 @@ def _is_worker_alive(result: AsyncResult, retries=1):
                 return True
 
             task_id = result.id
-            task_info = get_task(method_args=(task_id,), destination=(hostname,), timeout=60)
+            task_info = get_task(method_args=(task_id,), destination=(hostname,), timeout=180)
             if task_info and any(task_info.values()):
                 return True
 
             # Try get_active and get_reserved, since we suspect query_task (the api used by get_task above)
             # may be broken sometimes.
-            active_tasks = get_active(destination=(hostname,), timeout=60)
+            active_tasks = get_active(destination=(hostname,), timeout=180)
             task_list = active_tasks.get(hostname) if active_tasks else None
             if task_list:
                 for task in task_list:
@@ -260,7 +260,7 @@ def _is_worker_alive(result: AsyncResult, retries=1):
                     if this_task_id == task_id:
                         return True
 
-            reserved_tasks = get_reserved(destination=(hostname,), timeout=60)
+            reserved_tasks = get_reserved(destination=(hostname,), timeout=180)
             task_list = reserved_tasks.get(hostname) if reserved_tasks else None
             if task_list:
                 for task in task_list:
@@ -285,7 +285,7 @@ def _is_worker_alive(result: AsyncResult, retries=1):
                 logger.debug(f'Queue "{task_queue}" for {task_name} not seen yet; assuming task is alive.')
                 return True
 
-            queues = get_active_queues(timeout=60)
+            queues = get_active_queues(timeout=180)
             active_queues = {queue['name'] for node in queues.values() for queue in node} if queues else set()
             if task_queue in active_queues:
                 return True
