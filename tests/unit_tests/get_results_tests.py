@@ -163,7 +163,7 @@ class GetResultsTests(unittest.TestCase):
         with self.subTest('some of the return keys are non-existent'):
             result = {'a': 1, 'b': 2, 'c': 3, RETURN_KEYS_KEY: ('a', 'd')}
             r = AsyncResultMock(result=result)
-            self.assertDictEqual(get_results(r, merge_children_results=True), {})
+            self.assertDictEqual(get_results(r, merge_children_results=True), {'a': 1})
 
         with self.subTest('child has a return key'):
             result = {'a': 1, 'b': 2}

@@ -561,7 +561,7 @@ def get_task_results(results: dict) -> dict:
     except KeyError:
         return {}
     else:
-        return {k: results[k] for k in return_keys} if return_keys else {}
+        return {k: results[k] for k in return_keys if k in results} if return_keys else {}
 
 
 def get_tasks_inputs_from_result(results: dict) -> dict:
