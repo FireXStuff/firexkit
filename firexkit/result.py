@@ -659,7 +659,7 @@ def get_results(result: AsyncResult,
 
     while len(chain_members) > 1:
         # This means we have at least one parent to walk. Parents need to be walked first
-        # because we want the latter services in a chain should override the earlier services
+        # because we want the latter services in a chain to override the earlier services
         # results. But we don't want to walk the child which is a member of the chain,
         # since this will be walked explicitly, so we exclude that.
         results.update(_get_all_results(result=chain_members.pop(),
@@ -667,6 +667,7 @@ def get_results(result: AsyncResult,
                                         merge_children_results=merge_children_results,
                                         exclude_id=chain_members[-1].id))
 
+    # After possibly walking parents, we get our results for "result" (and possibly all children)
     results.update(_get_all_results(result=result,
                                     return_keys_only=return_keys_only,
                                     merge_children_results=merge_children_results))
