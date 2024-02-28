@@ -561,7 +561,7 @@ def get_task_results(results: dict) -> dict:
     except KeyError:
         return {}
     else:
-        return {k: results[k] for k in return_keys} if return_keys else {}
+        return {k: results[k] for k in return_keys if k in results} if return_keys else {}
 
 
 def get_tasks_inputs_from_result(results: dict) -> dict:
@@ -575,43 +575,39 @@ def get_tasks_inputs_from_result(results: dict) -> dict:
         return {k: v for k, v in results.items() if k not in return_keys}
 
 
-def _get_results(result: AsyncResult, return_keys_only=True, merge_children_results=False) -> dict:
-    # Generally,
-    #   1.	Apply inputs from current result
-    #   2.	Apply child results (and inputs) from children (if merge_children_results is True)
-    #   3.	Apply output from current result
+def _get_all_results(result: AsyncResult,
+                     all_results: dict,
+                     return_keys_only=True,
+                     merge_children_results=False,
+                     exclude_id=None)-> None:
 
-    results = {}
-    returned_values = {}
     if not result:
-        return results
-    try:
-        if result.successful():
-            _results = copy.deepcopy(result.result) if isinstance(result.result, dict) else result.result
-            if _results:
-                # these will need to be updated only after the children results are extracted
-                # i.e., node results are applied after children results
-                returned_values = get_task_results(_results)
-                if not return_keys_only:
-                    # Only relevant if merge_children_results is True:
-                    #   If return_keys_only us False, we need to apply the inputs first
-                    #   before applying the results(and inputs) of the children
-                    results = get_tasks_inputs_from_result(_results)
+        return  # <-- Nothing to do
 
-        if merge_children_results:
-            children = result.children
-            if children:
-                for child in children:
-                    child_results = get_results(child,
-                                                return_keys_only=return_keys_only,
-                                                merge_children_results=merge_children_results)
-                    results.update(child_results)
+    if result.successful():
+        ret = getattr(result, 'result', {}) or {}
+    else:
+        ret = {}
 
-        results.update(returned_values)
-    except Exception as e:
-        logger.exception(e)
+    if not return_keys_only and ret:
+        # Inputs from child win, below
+        all_results.update(get_tasks_inputs_from_result(ret))
 
-    return results
+    children = getattr(result, 'children', []) or [] if merge_children_results else []
+
+    for child in children:
+        if exclude_id and child and child.id == exclude_id:
+            continue
+        # Beware, recursion
+        _get_all_results(child,
+                         all_results=all_results,
+                         return_keys_only=return_keys_only,
+                         merge_children_results=merge_children_results,
+                         exclude_id=exclude_id) # Unnecessary; exclude_id is usually a first-level child
+
+    if ret:
+        # Returns from the parent win
+        all_results.update(get_task_results(ret))
 
 
 def results2tuple(results: dict, return_keys: Union[str, tuple]) -> tuple:
@@ -654,36 +650,37 @@ def get_results(result: AsyncResult,
         If `return_keys` parameter was specified, returns a tuple of the results in the same order of the return_keys.
         If `return_keys` parameter wasn't specified, return a dictionary of the key/value pairs of the returned results.
     """
-    def _update_results_dict(n):
-        node_results = _get_results(n,
-                                    return_keys_only=return_keys_only,
-                                    merge_children_results=merge_children_results)
-        for k, v in node_results.items():
-            if k not in extracted_dict:
-                # Since we're walking up the chain, children gets precedence in case we get the same key
-                extracted_dict[k] = v
+    all_results = {}
 
-    extracted_dict = {}
+    chain_members = [result]
+    if extract_from_parents:
+        current_node = result
+        while current_node and current_node.id != parent_id and current_node.parent:
+            chain_members.append(current_node.parent)
+            current_node = current_node.parent
 
-    # Get results from current AsyncResult object
-    node = result
-    _update_results_dict(node)
+    while len(chain_members) > 1:
+        # This means we have at least one parent to walk. Parents need to be walked first
+        # because we want the latter services in a chain to override the earlier services
+        # results. But we don't want to walk the child which is a member of the chain,
+        # since this will be walked explicitly, so we exclude that.
+        _get_all_results(result=chain_members.pop(),
+                         all_results=all_results,
+                         return_keys_only=return_keys_only,
+                         merge_children_results=merge_children_results,
+                         exclude_id=chain_members[-1].id)
 
-    # Get results from parents, if applicable
-    if node:
-        stop_at = node.id if extract_from_parents is False else parent_id
-        while node.id != stop_at:
-            node = node.parent
-            if node:
-                _update_results_dict(node)
-            else:
-                break
+    # After possibly walking parents, we get our results for "result" (and possibly all children)
+    _get_all_results(result=result,
+                     all_results=all_results,
+                     return_keys_only=return_keys_only,
+                     merge_children_results=merge_children_results)
 
     from firexkit.task import FireXTask
     if not return_keys or return_keys == FireXTask.DYNAMIC_RETURN or return_keys == (FireXTask.DYNAMIC_RETURN,):
-        return extracted_dict
+        return all_results
     else:
-        return results2tuple(extracted_dict, return_keys)
+        return results2tuple(all_results, return_keys)
 
 
 def get_results_with_default(result: AsyncResult,

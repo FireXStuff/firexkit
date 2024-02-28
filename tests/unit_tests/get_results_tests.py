@@ -34,6 +34,8 @@ class AsyncResultMock:
 def _get_children_asserts():
     raise AssertionError('Raising a fake assertion for the unit-test')
 
+def _get_children_attr_missing():
+    raise AttributeError('Raising a fake attribute error for the unit-test')
 
 class GetResultsTests(unittest.TestCase):
     def test_plain_case(self):
@@ -118,9 +120,9 @@ class GetResultsTests(unittest.TestCase):
             self.assertDictEqual(get_results(r, return_keys_only=False, merge_children_results=True), expected)
             self.assertDictEqual(get_results(r, merge_children_results=True), {})
 
-        with self.subTest('Child asserts'):
+        with self.subTest('Child attribute missing'):
             c4 = AsyncResultMock(result=c2_result)
-            c4._get_children = _get_children_asserts
+            c4._get_children = _get_children_attr_missing
             r = AsyncResultMock(result=result, children=[c1, c4])
             expected = result.copy()
             expected.update(c1_result)
@@ -163,7 +165,7 @@ class GetResultsTests(unittest.TestCase):
         with self.subTest('some of the return keys are non-existent'):
             result = {'a': 1, 'b': 2, 'c': 3, RETURN_KEYS_KEY: ('a', 'd')}
             r = AsyncResultMock(result=result)
-            self.assertDictEqual(get_results(r, merge_children_results=True), {})
+            self.assertDictEqual(get_results(r, merge_children_results=True), {'a': 1})
 
         with self.subTest('child has a return key'):
             result = {'a': 1, 'b': 2}
