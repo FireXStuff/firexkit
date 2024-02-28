@@ -652,11 +652,11 @@ def get_results(result: AsyncResult,
     """
     all_results = {}
 
-    chain_members = []
+    chain_members = [result]
     if extract_from_parents:
         current_node = result
-        while current_node and current_node.id != parent_id:
-            chain_members.append(current_node)
+        while current_node and current_node.id != parent_id and current_node.parent:
+            chain_members.append(current_node.parent)
             current_node = current_node.parent
 
     while len(chain_members) > 1:
