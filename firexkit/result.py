@@ -576,13 +576,13 @@ def get_tasks_inputs_from_result(results: dict) -> dict:
 
 
 def _get_all_results(result: AsyncResult,
+                     results: dict,
                      return_keys_only=True,
                      merge_children_results=False,
-                     exclude_id=None):
-    results = {}
+                     exclude_id=None)-> None:
 
     if not result:
-        return results  # <-- Nothing to do
+        return  # <-- Nothing to do
 
     if result.successful():
         ret = result.result or {}
@@ -599,16 +599,15 @@ def _get_all_results(result: AsyncResult,
         if exclude_id and child and child.id == exclude_id:
             continue
         # Beware, recursion
-        results.update(_get_all_results(child,
-                                        return_keys_only=return_keys_only,
-                                        merge_children_results=merge_children_results,
-                                        exclude_id=exclude_id)) # Unnecessary; exclude_id is usually first-level child
+        _get_all_results(child,
+                         results=results,
+                         return_keys_only=return_keys_only,
+                         merge_children_results=merge_children_results,
+                         exclude_id=exclude_id) # Unnecessary; exclude_id is usually a first-level child
 
     if ret:
         # Returns from the parent win
         results.update(get_task_results(ret))
-
-    return results
 
 
 def results2tuple(results: dict, return_keys: Union[str, tuple]) -> tuple:
@@ -665,15 +664,17 @@ def get_results(result: AsyncResult,
         # because we want the latter services in a chain to override the earlier services
         # results. But we don't want to walk the child which is a member of the chain,
         # since this will be walked explicitly, so we exclude that.
-        results.update(_get_all_results(result=chain_members.pop(),
-                                        return_keys_only=return_keys_only,
-                                        merge_children_results=merge_children_results,
-                                        exclude_id=chain_members[-1].id))
+        _get_all_results(result=chain_members.pop(),
+                         results=results,
+                         return_keys_only=return_keys_only,
+                         merge_children_results=merge_children_results,
+                         exclude_id=chain_members[-1].id)
 
     # After possibly walking parents, we get our results for "result" (and possibly all children)
-    results.update(_get_all_results(result=result,
-                                    return_keys_only=return_keys_only,
-                                    merge_children_results=merge_children_results))
+    _get_all_results(result=result,
+                     results=results,
+                     return_keys_only=return_keys_only,
+                     merge_children_results=merge_children_results)
 
     from firexkit.task import FireXTask
     if not return_keys or return_keys == FireXTask.DYNAMIC_RETURN or return_keys == (FireXTask.DYNAMIC_RETURN,):
