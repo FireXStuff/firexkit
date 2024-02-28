@@ -599,7 +599,10 @@ def _get_all_results(result: AsyncResult,
         if exclude_id and child and child.id == exclude_id:
             continue
         # Beware, recursion
-        results.update(_get_all_results(child, return_keys_only=return_keys_only))
+        results.update(_get_all_results(child,
+                                        return_keys_only=return_keys_only,
+                                        merge_children_results=merge_children_results,
+                                        exclude_id=exclude_id)) # Unnecessary; exclude_id is usually first-level child
 
     if ret:
         # Returns from the parent win
