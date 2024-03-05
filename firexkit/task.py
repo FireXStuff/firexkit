@@ -1127,11 +1127,11 @@ class FireXTask(Task):
         if self.request.retries > 0:
             # previous run failed, so we assume (possibly incorrectly!) this child also failed
             # and we decrement the enqueue_child count
-            num_previous_runs = self.backend.decr(enqueue_child_once_count_dbkey)
+            num_previous_runs = self.backend.client.decr(enqueue_child_once_count_dbkey)
             logger.warn(f'enqueue_once called for a retrying task with key {enqueue_once_key}.'
                         f' Number of previous runs: {num_previous_runs+1}. Discounting one previous run.')
 
-        num_runs_attempted = self.backend.incr(enqueue_child_once_count_dbkey)
+        num_runs_attempted = self.backend.client.incr(enqueue_child_once_count_dbkey)
         if int(num_runs_attempted) == 1:
             # This is the first attempt, enqueue the child
             apply_async_epilogue = partial(_set_taskid_in_db_key,
