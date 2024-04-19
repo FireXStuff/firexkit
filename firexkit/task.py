@@ -43,6 +43,7 @@ FIREX_REVOKE_COMPLETE_EVENT_TYPE = 'task-firex-revoked'
 REDIS_DB_KEY_FOR_RESULTS_WITH_REPORTS = 'FIREX_RESULTS_WITH_REPORTS'
 REDIS_DB_KEY_PREFIX_FOR_ENQUEUE_ONCE_UID = 'ENQUEUE_CHILD_ONCE_UID_'
 REDIS_DB_KEY_PREFIX_FOR_ENQUEUE_ONCE_COUNT = 'ENQUEUE_CHILD_ONCE_COUNT_'
+REDIS_DB_KEY_PREFIX_FOR_CACHE_ENABLED_UID = 'CACHE_ENABLED'
 
 logger = get_task_logger(__name__)
 
@@ -252,6 +253,10 @@ class DictWillNotAllowWrites(dict):
         super().update(*args, **kwargs)
 
 
+def get_cache_enabled_uid_dbkey(cache_key_info: str) -> str:
+    return f'{REDIS_DB_KEY_PREFIX_FOR_CACHE_ENABLED_UID}{cache_key_info}'
+
+
 def get_enqueue_child_once_uid_dbkey(enqueue_once_key: str) -> str:
     return f'{REDIS_DB_KEY_PREFIX_FOR_ENQUEUE_ONCE_UID}{enqueue_once_key}'
 
@@ -264,11 +269,24 @@ def get_current_enqueue_child_once_uid_dbkeys(db) -> list[str]:
     return db.client.keys(get_enqueue_child_once_uid_dbkey('*'))
 
 
+def get_current_cache_enabled_uid_dbkeys(db) -> list[str]:
+    return db.client.keys(get_cache_enabled_uid_dbkey('*'))
+
+
 def get_current_enqueue_child_once_uids(db) -> set[str]:
     """Returns a set of all task/result ids that were executed with enqueue_once"""
 
     # First, we need to find all the enqueue_once keys
     keys = get_current_enqueue_child_once_uid_dbkeys(db)
+    # Then we get the task/result ids stored in those keys
+    return {v.decode() for v in db.mget(keys)}
+
+
+def get_current_cache_enabled_uids(db) -> set[str]:
+    """Returns a set of all task/result ids whose tasks were cache-enabled"""
+
+    # First, we need to find all the cache_enabled keys
+    keys = get_current_cache_enabled_uid_dbkeys(db)
     # Then we get the task/result ids stored in those keys
     return {v.decode() for v in db.mget(keys)}
 
@@ -685,7 +703,7 @@ class FireXTask(Task):
 
     def _get_cache_key(self):
         # Need a sting hash of name + all_args
-        return str((self.name,) + tuple(sorted(self.all_args.items())))
+        return get_cache_enabled_uid_dbkey(str((self.name,) + tuple(sorted(self.all_args.items()))))
 
     def _cache_get(self, cache_key):
         cached_uuid = self.backend.get(cache_key)
@@ -909,6 +927,7 @@ class FireXTask(Task):
                             child_result: AsyncResult,
                             do_not_forget_report_nodes: bool = True,
                             do_not_forget_enqueue_once_nodes: bool = True,
+                            do_not_forget_cache_enabled_tasks_results: bool = True,
                             **kwargs):
 
         """Forget results of the tree rooted at the "chain-head" of child_result, while skipping subtrees in
@@ -918,14 +937,25 @@ class FireXTask(Task):
 
         If do_not_forget_enqueue_once_nodes is True (default), do not forget subtrees rooted at nodes that were enqueued
         with enqueue_once
+
+        If do_not_forget_cache_enabled_tasks_results is True (default), do not forget subtrees rooted at nodes that belong to
+        services with cached=True
         """
         logger.debug('Forgetting results')
 
-        enqueue_once_subtree_nodes = None
+        skip_subtree_nodes: set[str] = set()
+
         if do_not_forget_enqueue_once_nodes:
             enqueue_once_subtree_nodes = get_current_enqueue_child_once_uids(self.backend)
             if enqueue_once_subtree_nodes:
+                skip_subtree_nodes.update(enqueue_once_subtree_nodes)
                 logger.debug(f'Enqueue once subtree nodes: {enqueue_once_subtree_nodes}')
+
+        if do_not_forget_cache_enabled_tasks_results:
+            cache_enabled_subtree_nodes = get_current_cache_enabled_uids(self.backend)
+            if cache_enabled_subtree_nodes:
+                skip_subtree_nodes.update(cache_enabled_subtree_nodes)
+                logger.debug(f'Cache-enabled  subtree nodes: {cache_enabled_subtree_nodes}')
 
         report_nodes = None
         if do_not_forget_report_nodes:
@@ -934,7 +964,7 @@ class FireXTask(Task):
                 logger.debug(f'Report nodes: {report_nodes}')
 
         forget_chain_results(child_result,
-                             skip_subtree_nodes=enqueue_once_subtree_nodes,
+                             skip_subtree_nodes=skip_subtree_nodes,
                              do_not_forget_nodes=report_nodes,
                              **kwargs)
         # Since we forget the child, we need to also remove it from the list of enqueued_children
