@@ -8,7 +8,7 @@ from collections import OrderedDict
 import inspect
 from datetime import datetime
 from functools import partial
-from typing import Callable, Iterable, Optional, Union
+from typing import Callable, Iterable, Optional, Union, Any
 from urllib.parse import urljoin
 from copy import deepcopy
 import dataclasses
@@ -50,6 +50,13 @@ logger = get_task_logger(__name__)
 ################################################################
 # Monkey patching
 _orig_chain_apply_async__ = _chain.apply_async
+
+
+@dataclasses.dataclass
+class TaskConfig:
+    signature: Signature
+    inject_abog: bool = True
+    enqueue_opts: Optional[dict[str, Any]] = None
 
 
 def _chain_apply_async(self: _chain, *args: tuple, **kwargs: dict) -> AsyncResult:
@@ -1240,6 +1247,20 @@ class FireXTask(Task):
             # Wait for all children to complete
             self.wait_for_specific_children(promises, raise_exception_on_failure=raise_exception_on_failure)
         return promises
+
+    def enqueue_task_config(self,
+                            task_config: TaskConfig,
+                            inject_args: Optional[dict] = None):
+        enqueue_opts = task_config.enqueue_opts or dict()
+        chain = task_config.signature
+        args_to_inject = self.abog.copy() if task_config.inject_abog else {}
+        if inject_args:
+            args_to_inject.update(inject_args)
+        if args_to_inject:
+            from firexkit.chain import InjectArgs
+            chain = InjectArgs(**args_to_inject) | chain
+        logger.debug(f'Enqueuing {task_config}')
+        self.enqueue_child(chain, **enqueue_opts)
 
     def revoke_nonready_children(self):
         nonready_children = self.nonready_enqueued_children
