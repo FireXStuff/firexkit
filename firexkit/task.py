@@ -53,7 +53,7 @@ _orig_chain_apply_async__ = _chain.apply_async
 
 
 @dataclasses.dataclass
-class TaskConfig:
+class TaskEnqueueSpec:
     signature: Signature
     inject_abog: bool = True
     enqueue_opts: Optional[dict[str, Any]] = None
@@ -1248,18 +1248,18 @@ class FireXTask(Task):
             self.wait_for_specific_children(promises, raise_exception_on_failure=raise_exception_on_failure)
         return promises
 
-    def enqueue_task_config(self,
-                            task_config: TaskConfig,
-                            inject_args: Optional[dict] = None):
-        enqueue_opts = task_config.enqueue_opts or dict()
-        chain = task_config.signature
-        args_to_inject = self.abog.copy() if task_config.inject_abog else {}
+    def enqueue_child_from_spec(self,
+                                task_spec: TaskEnqueueSpec,
+                                inject_args: Optional[dict] = None):
+        enqueue_opts = task_spec.enqueue_opts or dict()
+        chain = task_spec.signature
+        args_to_inject = self.abog.copy() if task_spec.inject_abog else {}
         if inject_args:
             args_to_inject.update(inject_args)
         if args_to_inject:
             from firexkit.chain import InjectArgs
             chain = InjectArgs(**args_to_inject) | chain
-        logger.debug(f'Enqueuing {task_config}')
+        logger.debug(f'Enqueuing {task_spec}')
         self.enqueue_child(chain, **enqueue_opts)
 
     def revoke_nonready_children(self):
