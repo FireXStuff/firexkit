@@ -77,6 +77,10 @@ class NotInCache(Exception):
     pass
 
 
+class UidNotInjectedInAbog(Exception):
+    pass
+
+
 class TaskContext:
     pass
 
@@ -885,6 +889,15 @@ class FireXTask(Task):
     def abog(self) -> DictWillNotAllowWrites:
         return DictWillNotAllowWrites(_instrumentation_context=self, **{**self.bag, **self.default_bound_args})
 
+    @property
+    def uid(self):
+        try:
+            return self.abog['uid']
+        except KeyError:
+            raise UidNotInjectedInAbog('Please ensure you either inject uid explicitly, '
+                                       'or use either self.enqueue_child, self.enqueue_child_and_get_results, '
+                                       'or self.enqueue_in_parallel')
+
     #######################
     # Enqueuing child tasks
 
@@ -1003,7 +1016,7 @@ class FireXTask(Task):
                       raise_exception_on_failure: bool = None,
                       apply_async_epilogue: Callable[[AsyncResult], None] = None, apply_async_options=None,
                       forget: bool = False,
-                      **kwargs) -> AsyncResult:
+                      **kwargs) -> Optional[AsyncResult]:
         """Schedule a child task to run"""
 
         if raise_exception_on_failure is not None:
@@ -1019,6 +1032,13 @@ class FireXTask(Task):
 
         if isinstance(chain, InjectArgs):
             return
+
+        # Inject uid whenever possible
+        try:
+            chain = InjectArgs(uid=self.uid) | chain
+        except UidNotInjectedInAbog as e:
+            logger.warning(f'Could not automatically inject uid.\n'
+                           f'{e}')
 
         verify_chain_arguments(chain)
         child_result = chain.apply_async(**apply_async_options)
