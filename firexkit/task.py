@@ -1016,6 +1016,7 @@ class FireXTask(Task):
                       raise_exception_on_failure: bool = None,
                       apply_async_epilogue: Callable[[AsyncResult], None] = None, apply_async_options=None,
                       forget: bool = False,
+                      inject_uid: bool = False,
                       **kwargs) -> Optional[AsyncResult]:
         """Schedule a child task to run"""
 
@@ -1034,11 +1035,8 @@ class FireXTask(Task):
             return
 
         # Inject uid whenever possible
-        try:
+        if inject_uid:
             chain = InjectArgs(uid=self.uid) | chain
-        except UidNotInjectedInAbog as e:
-            logger.warning(f'Could not automatically inject uid.\n'
-                           f'{e}')
 
         verify_chain_arguments(chain)
         child_result = chain.apply_async(**apply_async_options)
