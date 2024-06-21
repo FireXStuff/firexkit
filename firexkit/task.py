@@ -1628,6 +1628,10 @@ def _custom_serializers(obj) -> str:
 
 
 def convert_to_serializable(obj, max_recursive_depth=10, _depth=0):
+
+    if obj is None or isinstance(obj, (int, float, str, bool)):
+        return obj
+
     if hasattr(obj, 'firex_serializable'):
         return obj.firex_serializable()
 
@@ -1647,7 +1651,10 @@ def convert_to_serializable(obj, max_recursive_depth=10, _depth=0):
     if _depth < max_recursive_depth:
         # Full object isn't jsonable, but some contents might be. Try walking the structure to get jsonable parts.
         if isinstance(obj, dict):
-            return {k: convert_to_serializable(v, max_recursive_depth, _depth+1) for k, v in obj.items()}
+            return {
+                convert_to_serializable(k, max_recursive_depth, _depth+1): convert_to_serializable(v, max_recursive_depth, _depth+1)
+                for k, v in obj.items()
+            }
 
         # Note that it's important this DOES NOT catch strings, and it won't since strings are jsonable.
         if isinstance(obj, Iterable):
