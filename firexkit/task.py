@@ -340,6 +340,7 @@ class FireXTask(Task):
         self._in_required = None
         self._in_optional = None
 
+        self._logs_dir_for_worker = None
         self._file_logging_dir_path = None
         self._task_logging_dirpath = None
         self._temp_loghandlers = None
@@ -1325,6 +1326,14 @@ class FireXTask(Task):
         else:
             self._file_logging_dir_path = os.path.dirname(self.worker_log_file)
             return self._file_logging_dir_path
+
+    @property
+    def logs_dir_for_worker(self):
+        if self._logs_dir_for_worker:
+            return self._logs_dir_for_worker
+        else:
+            self._logs_dir_for_worker = os.path.dirname(self.file_logging_dirpath)
+            return self._logs_dir_for_worker
 
     def get_task_logging_dirpath_from_request(self, request):
         # Sometimes self.request isn't populated correctly, so we need to use this version instead of the property
