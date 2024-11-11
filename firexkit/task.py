@@ -77,6 +77,10 @@ class NotInCache(Exception):
     pass
 
 
+class CacheResultNotPopulatedYetInRedis(NotInCache):
+    pass
+
+
 class UidNotInjectedInAbog(Exception):
     pass
 
@@ -731,9 +735,27 @@ class FireXTask(Task):
         self.backend.set(cache_key, uuid)
 
     @classmethod
-    def _run_from_cache(cls, cached_uuid):
+    def _retrieve_result_from_backend(cls, cached_uuid, secs_to_wait_for_cached_result: int=3):
         # Retrieve the result of the original cached uuid from the backend
-        result = cls.app.backend.get_result(cached_uuid)
+        logger.info(f'Retrieving result for {cached_uuid}; might take up to {secs_to_wait_for_cached_result} seconds.')
+        loop_start_time = current_time = time.time()
+        while (current_time - loop_start_time) < secs_to_wait_for_cached_result:
+            result = cls.app.backend.get_result(cached_uuid)
+            if set(result.keys()) != {'hostname', 'pid'}:
+                # When the result is not populated, we get a dict back with these two keys
+                break # --< We're done
+            else:
+                logger.debug(f'Result not populated yet!')
+                time.sleep(0.1)
+                current_time = time.time()
+        else:
+            raise CacheResultNotPopulatedYetInRedis(f'result for {cached_uuid} not populated '
+                                                    f'in redis after {secs_to_wait_for_cached_result}s')
+        return result
+
+    @classmethod
+    def _run_from_cache(cls, cached_uuid):
+        result = cls._retrieve_result_from_backend(cached_uuid)
         cleaned_result = cls.convert_cached_results(result)
         return cleaned_result
 
@@ -761,20 +783,28 @@ class FireXTask(Task):
                     use_cache_value = request_use_cache
         return bool(use_cache_value)
 
+    def _real_call_and_cache_set(self, cache_key):
+        result = self.real_call()
+        self._cache_set(cache_key, self.request.id)
+        return result
+
     def cache_call(self):
         cache_key = self._get_cache_key()
         try:
             cached_uuid = self._cache_get(cache_key)
         except NotInCache:
             logger.debug(f'[Caching] No entry found for key {cache_key!r}')
-            result = self.real_call()
-            self._cache_set(cache_key, self.request.id)
-            return result
+            return self._real_call_and_cache_set(cache_key)
         else:
-            result = self._run_from_cache(cached_uuid)
-            converted_result = self.convert_cached_results(result)
-            return self._process_result(converted_result,
-                                        extra_events={'cached_result_from': cached_uuid})
+            try:
+                result = self._run_from_cache(cached_uuid)
+            except CacheResultNotPopulatedYetInRedis:
+                logger.debug('[Caching] Cache result not populated yet in Redis. '
+                             'Reverting to a real call')
+                return self._real_call_and_cache_set(cache_key)
+            else:
+                return self._process_result(result,
+                                            extra_events={'cached_result_from': cached_uuid})
 
     def real_call(self):
         result = super(FireXTask, self).__call__(*self.args, **self.kwargs)
