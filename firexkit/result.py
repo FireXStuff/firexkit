@@ -4,7 +4,7 @@ from collections import namedtuple, deque
 import weakref
 
 from pprint import pformat
-from typing import Union, Iterator, Optional, Iterable
+from typing import Union, Iterator, Optional, Iterable, Any
 
 from celery import current_app
 from celery.result import AsyncResult
@@ -17,6 +17,10 @@ from firexkit.revoke import RevokedRequests
 
 RETURN_KEYS_KEY = '__task_return_keys'
 _TASK_POST_RUN_KEY = 'TASK_POST_RUN'
+
+
+RUN_RESULTS_NAME = 'chain_results'
+RUN_UNSUCCESSFUL_NAME = 'unsuccessful_services'
 
 ResultId = Union[AsyncResult, str]
 
@@ -148,7 +152,15 @@ def find_all_unsuccessful(result: AsyncResult, ignore_non_ready=False, depth=0) 
     return failures
 
 
-def find_unsuccessful_in_chain(result: AsyncResult) -> {}:
+def _create_unsuccessful_result(failures: list[str], did_not_run: list[str]) -> dict[str, list[str]]:
+    res = {}
+    if failures:
+        res['failed'] = failures
+    if did_not_run:
+        res['not_run'] = did_not_run
+    return res
+
+def find_unsuccessful_in_chain(result: AsyncResult) -> dict[str, list[str]]:
     failures = []
     did_not_run = []
     node = result
@@ -164,12 +176,30 @@ def find_unsuccessful_in_chain(result: AsyncResult) -> {}:
     # Should reverse the items since we're traversing the chain from RTL
     failures.reverse()
     did_not_run.reverse()
-    res = {}
-    if failures:
-        res['failed'] = failures
-    if did_not_run:
-        res['not_run'] = did_not_run
-    return res
+    return _create_unsuccessful_result(failures, did_not_run)
+
+
+def get_run_results_from_root_task_promise(root_task_ar: Optional[AsyncResult]) -> Optional[dict[str, Any]]:
+    if root_task_ar and root_task_ar.ready():
+        if root_task_ar.successful():
+            return get_results(root_task_ar)
+        else:
+            failures = []
+            did_not_run = []
+            if root_task_ar.failed():
+                failures.append(f"Run failed: {root_task_ar.result}")
+            else:
+                # overloading "not run" to also mean "revoked", doesn't seem right to add another key.
+                if root_task_ar.state in [REVOKED, RETRY]:
+                    not_run_detail = 'was revoked (i.e. cancelled)'
+                else:
+                    not_run_detail = 'did not complete'
+                did_not_run.append(f"Run {not_run_detail}")
+            return {
+                RUN_RESULTS_NAME: {},
+                RUN_UNSUCCESSFUL_NAME: _create_unsuccessful_result(failures, did_not_run)
+            }
+    return None
 
 
 def _check_for_failure_in_parents(result, timeout=15 * 60, retry_delay=1):
