@@ -1,4 +1,6 @@
 [build-system]
-requires = ["setuptools", 
-            "versioneer"]
+requires = [
+    "setuptools",
+    "versioneer",
+    ]
 build-backend = "setuptools.build_meta"
