@@ -19,6 +19,7 @@ default:
     - source venv/bin/activate
     - pip install --upgrade pip
     - pip install --upgrade firexbuilder
+    - git config --global --add safe.directory /builds/FireXStuff/firexkit
 
 build:
   stage: build
