@@ -1207,15 +1207,17 @@ class FireXTask(Task):
     def enqueue_child_once(self, *args, enqueue_once_key, block=False, **kwargs):
         """See  :`meth:`enqueue_child_once_and_extract`
         """
-        enqueue_child_once_uid_dbkey = get_enqueue_child_once_uid_dbkey(enqueue_once_key)
-        enqueue_child_once_count_dbkey = get_enqueue_child_once_count_dbkey(enqueue_once_key)
 
         if self.request.retries > 0:
-            # previous run failed, so we assume (possibly incorrectly!) this child also failed
-            # and we decrement the enqueue_child count
-            num_previous_runs = self.backend.client.decr(enqueue_child_once_count_dbkey)
-            logger.warn(f'enqueue_once called for a retrying task with key {enqueue_once_key}.'
-                        f' Number of previous runs: {num_previous_runs+1}. Discounting one previous run.')
+            # NOTE: We presume previous run of the enqueue service failed and needs to rerun, so we use a new key.
+            # There is danger here: If we are retrying before originally enqueueing this service, it's possible that
+            # a regular enqueue of this service from elsewhere is still running and the new enqueue with the new
+            # key will clash with that one
+            enqueue_once_key = f'{enqueue_once_key}_{self.request.retries}'
+            logger.info(f'Enqueue once: set new enqueue key, since this is a retry ({enqueue_once_key})')
+
+        enqueue_child_once_uid_dbkey = get_enqueue_child_once_uid_dbkey(enqueue_once_key)
+        enqueue_child_once_count_dbkey = get_enqueue_child_once_count_dbkey(enqueue_once_key)
 
         num_runs_attempted = self.backend.client.incr(enqueue_child_once_count_dbkey)
         if int(num_runs_attempted) == 1:
