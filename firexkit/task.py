@@ -15,7 +15,6 @@ import dataclasses
 
 from celery.canvas import Signature, _chain
 from celery.result import AsyncResult
-from celery.states import REVOKED
 from contextlib import contextmanager
 from enum import Enum
 from logging.handlers import WatchedFileHandler
@@ -23,7 +22,7 @@ from types import MethodType, MappingProxyType
 from abc import abstractmethod
 from celery.app.task import Task
 from celery.local import PromiseProxy
-from celery.signals import task_prerun, task_postrun, task_revoked
+from celery.signals import task_prerun
 from celery.utils.log import get_task_logger, get_logger
 
 from firexkit.bag_of_goodies import BagOfGoodies
@@ -38,7 +37,6 @@ from firexkit.firexkit_common import JINJA_ENV
 import time
 
 REPLACEMENT_TASK_NAME_POSTFIX = '_orig'
-FIREX_REVOKE_COMPLETE_EVENT_TYPE = 'task-firex-revoked'
 
 REDIS_DB_KEY_FOR_RESULTS_WITH_REPORTS = 'FIREX_RESULTS_WITH_REPORTS'
 REDIS_DB_KEY_PREFIX_FOR_ENQUEUE_ONCE_UID = 'ENQUEUE_CHILD_ONCE_UID_'
@@ -1654,7 +1652,7 @@ def is_jsonable(obj) -> bool:
     else:
         return True
 
-def _custom_serializers(obj) -> str:
+def _custom_serializers(obj) -> Optional[str]:
     # This is primarily done to make root service "unsuccessful_services" visible in run.json
     if isinstance(obj, AsyncResult) and obj.failed():
         task_name = get_task_name_from_result(obj)
@@ -1725,7 +1723,7 @@ def get_task_start_time(task_id, backend):
     starttime_dbkey = get_starttime_dbkey(task_id)
     try:
         return float(backend.get(starttime_dbkey))
-    except:
+    except Exception:
         return None
 
 
@@ -1742,25 +1740,3 @@ def statsd_task_prerun(sender, task, task_id, args, kwargs, **donotcare):
     starttime_dbkey = get_starttime_dbkey(task_id)
     if not sender.backend.get(starttime_dbkey):
         sender.backend.set(starttime_dbkey, time.time())
-
-
-def send_task_completed_event(task, task_id, backend):
-    actual_runtime = get_time_from_task_start(task_id, backend)
-    if actual_runtime is not None:
-        task.send_event('task-completed', actual_runtime=convert_to_serializable(actual_runtime))
-
-
-@task_postrun.connect
-def statsd_task_postrun(sender, task, task_id, args, kwargs, **donotcare):
-    send_task_completed_event(task, task_id, sender.backend)
-
-    # Celery can send task-revoked event before task is completed, allowing other states (e.g. task-unblocked) to
-    # be emitted after task-revoked. Sending another indicator of revoked here allows the terminal state to be
-    # correctly captured by listeners, since task_postrun occurs when the task is _really_ complete.
-    if task.AsyncResult(task_id).state == REVOKED:
-        task.send_event(FIREX_REVOKE_COMPLETE_EVENT_TYPE)
-
-
-@task_revoked.connect
-def statsd_task_revoked(sender, request, terminated, signum, expired, **kwargs):
-    send_task_completed_event(sender, request.id, sender.backend)
