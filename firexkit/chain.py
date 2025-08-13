@@ -47,17 +47,17 @@ def returns(*args):
     return decorator
 
 
-class InjectArgs(object):
+class InjectArgs(Signature):
     def __init__(self, **kwargs):
-        self.injectArgs = kwargs
+        self.inject_args = kwargs
 
-    def __or__(self, other) -> Union[chain, Signature]:
+    def __or__(self, other):
         if isinstance(other, InjectArgs):
-            r = InjectArgs(**(self.injectArgs | other.injectArgs))
+            r = InjectArgs(**(self.inject_args | other.inject_args))
         else:
             r = other.clone()
             # chains and signatures are both handled by this
-            _inject_args_into_signature(r, **self.injectArgs)
+            _inject_args_into_signature(r, **self.inject_args)
         return r
 
 

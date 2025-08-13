@@ -1091,7 +1091,7 @@ class FireXTask(Task):
                                       return_keys_only: bool = True,
                                       merge_children_results: bool = False,
                                       extract_from_parents: bool = True,
-                                      **kwargs) -> Union[tuple, dict]:
+                                      **kwargs) -> dict:
         """Apply a ``chain``, and extract results from it.
 
         This is a better version of `enqueue_child_and_extract` where the defaults for
@@ -1463,7 +1463,7 @@ class FireXTask(Task):
     def duration(self):
         return get_time_from_task_start(self.request.id, self.backend)
 
-    def start_time(self):
+    def start_time(self) -> float:
         return get_task_start_time(self.request.id, self.backend)
 
     def get_task_flame_configs(self) -> OrderedDict:
@@ -1719,7 +1719,7 @@ def get_starttime_dbkey(task_id):
     return task_id + '_starttime'
 
 
-def get_task_start_time(task_id, backend):
+def get_task_start_time(task_id, backend) -> Optional[float]:
     starttime_dbkey = get_starttime_dbkey(task_id)
     try:
         return float(backend.get(starttime_dbkey))

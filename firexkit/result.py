@@ -152,7 +152,7 @@ def find_all_unsuccessful(result: AsyncResult, ignore_non_ready=False, depth=0) 
     return failures
 
 
-def _create_unsuccessful_result(failures: list[str], did_not_run: list[str]) -> dict[str, list[str]]:
+def create_unsuccessful_result(failures: list[str], did_not_run: list[str]) -> dict[str, list[str]]:
     res = {}
     if failures:
         res['failed'] = failures
@@ -160,46 +160,24 @@ def _create_unsuccessful_result(failures: list[str], did_not_run: list[str]) -> 
         res['not_run'] = did_not_run
     return res
 
+
 def find_unsuccessful_in_chain(result: AsyncResult) -> dict[str, list[str]]:
     failures = []
     did_not_run = []
-    node = result
-    while node:
-        if is_result_ready(node):
+    async_result : Optional[AsyncResult] = result
+    while async_result:
+        if is_result_ready(async_result):
             # Did this task fail?
-            if node.state == FAILURE:
-                failures.append(node)
+            if async_result.state == FAILURE:
+                failures.append(async_result)
         else:
             # This task was not ready
-            did_not_run.append(node)
-        node = node.parent
+            did_not_run.append(async_result)
+        async_result = async_result.parent
     # Should reverse the items since we're traversing the chain from RTL
     failures.reverse()
     did_not_run.reverse()
-    return _create_unsuccessful_result(failures, did_not_run)
-
-
-def get_run_results_from_root_task_promise(root_task_ar: Optional[AsyncResult]) -> Optional[dict[str, Any]]:
-    if root_task_ar and root_task_ar.ready():
-        if root_task_ar.successful():
-            return get_results(root_task_ar)
-        else:
-            failures = []
-            did_not_run = []
-            if root_task_ar.failed():
-                failures.append(f"Run failed: {root_task_ar.result}")
-            else:
-                # overloading "not run" to also mean "revoked", doesn't seem right to add another key.
-                if root_task_ar.state in [REVOKED, RETRY]:
-                    not_run_detail = 'was revoked (i.e. cancelled)'
-                else:
-                    not_run_detail = 'did not complete'
-                did_not_run.append(f"Run {not_run_detail}")
-            return {
-                RUN_RESULTS_NAME: {},
-                RUN_UNSUCCESSFUL_NAME: _create_unsuccessful_result(failures, did_not_run)
-            }
-    return None
+    return create_unsuccessful_result(failures, did_not_run)
 
 
 def _check_for_failure_in_parents(result, timeout=15 * 60, retry_delay=1):
