@@ -767,7 +767,7 @@ def disable_async_result(result: AsyncResult):
 # Returns the first exception that is not a "ChainInterruptedException"
 # in the exceptions stack.
 #
-def first_non_chain_interrupted_exception(ex):
+def first_non_chain_interrupted_exception(ex: BaseException) -> BaseException:
     e = ex
     while e.__cause__ is not None and isinstance(e, ChainInterruptedException):
         e = e.__cause__

@@ -61,9 +61,9 @@ class ConverterRegister:
             start = datetime.now()
             try:
                 converted_dict = converters[node].func(new_kwargs)
-            except Exception:
-                logger.error("Error in converter " + node)
-                raise
+            except Exception as e:
+                logger.warning(f"Error in input converter {node}")
+                raise ArgumentConversionException(f'Converter {node} failed: {e}') from e
             done = datetime.now()
             delta = (done - start).total_seconds()
             if verbose or delta >= 0.001:

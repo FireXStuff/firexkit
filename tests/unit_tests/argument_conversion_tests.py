@@ -225,9 +225,9 @@ class ArgConversionTests(unittest.TestCase):
 
         @test_input_converter.register
         def go_boom(_):
-                raise TestException()
+            raise TestException()
 
-        with self.assertRaises(TestException):
+        with self.assertRaises(Exception):
             test_input_converter.convert()
 
         with self.assertRaises(NameDuplicationException):
@@ -270,6 +270,7 @@ class ArgConversionTests(unittest.TestCase):
         @SingleArgDecorator("match")
         def go_boom(_):
             raise NotImplementedError("Go boom")
+
         with self.assertRaises(ArgumentConversionException):
             test_input_converter.convert(**{"match": True})
 
