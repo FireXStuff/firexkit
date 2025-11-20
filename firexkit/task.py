@@ -1665,6 +1665,8 @@ def _custom_serializers(obj) -> Optional[str]:
 
     return None
 
+import pydantic
+
 
 def convert_to_serializable(obj, max_recursive_depth=10, _depth=0):
 
@@ -1677,7 +1679,9 @@ def convert_to_serializable(obj, max_recursive_depth=10, _depth=0):
     if isinstance(obj, datetime):
         obj = obj.isoformat()
 
-    if dataclasses.is_dataclass(obj):
+    if isinstance(obj, pydantic.BaseModel):
+        return obj.model_dump(mode='json')
+    elif dataclasses.is_dataclass(obj):
         try:
             obj = dataclasses.asdict(obj)
         except TypeError:

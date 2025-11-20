@@ -1,14 +1,15 @@
 import time
-from typing import Iterable
+from typing import Iterable, Union
 
-from celery import current_app
+from celery import current_app, Celery
+from celery.local import Proxy
 from celery.utils.log import get_task_logger
 
 logger = get_task_logger(__name__)
 
 
 def inspect_with_retry(inspect_retry_timeout=30, inspect_method=None, retry_if_None_returned=True,
-                       celery_app=current_app, method_args: Iterable = None, verbose=False, **inspect_opts):
+                       celery_app: Union[Celery, Proxy]=current_app, method_args: Iterable = None, verbose=False, **inspect_opts):
 
     inspect_retry_timeout = inspect_retry_timeout if inspect_retry_timeout else 0
     timeout_time = time.monotonic() + inspect_retry_timeout
@@ -38,7 +39,7 @@ def inspect_with_retry(inspect_retry_timeout=30, inspect_method=None, retry_if_N
                     raise
 
                 result = None
-                logger.debug(f'Connection error during broker inspection', exc_info=e)
+                logger.debug('Connection error during broker inspection', exc_info=e)
 
             if verbose:
                 logger.debug(f'{header} returned {_get_result_summary(result)}')

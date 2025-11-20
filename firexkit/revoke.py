@@ -1,8 +1,5 @@
 import os
-import string
 import json
-import secrets
-import dataclasses
 from pathlib import Path
 
 from celery import current_app
@@ -41,7 +38,7 @@ class RevokedRequests(object):
         revoked_list = list()
         v = get_revoked(retry_if_None_returned=False,
                         timeout=60,
-                        destination=(f'{current_app.conf.primary_worker_name}@{current_app.conf.mc}', ))
+                        destination=(f'mc@{current_app.conf.mc}', ))
         if not v:
             return revoked_list
         else:
