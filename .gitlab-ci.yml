@@ -35,25 +35,11 @@ build-docs:
     - firex-build docs
   artifacts:
     paths:
-      - html/  
-
-test:
-  stage: test
-  script:
-    - firex-build unit_tests
-  artifacts:
-    paths:
-      - .coverage
-
-#test-firexapp:
-#  stage: test
-#  trigger:
-#    strategy: depend
-#    project: FireXStuff/firexapp
+      - html/
 
 upload-pkg:
   stage: upload
-  script: 
+  script:
     - pip install keyrings.alt
     - firex-build upload_pip
   only:
@@ -75,7 +61,7 @@ update-docs:
   stage: update-docs
   image: google/cloud-sdk
   script:
-    - gcloud auth activate-service-account --key-file $GOOGLE_APPLICATION_CREDENTIALS 
+    - gcloud auth activate-service-account --key-file $GOOGLE_APPLICATION_CREDENTIALS
     - gsutil -m rsync -r html gs://www.firexstuff.com/firexkit
   needs:
     - upload-pkg

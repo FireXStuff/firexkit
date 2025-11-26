@@ -1,5 +1,5 @@
 import time
-from typing import Iterable, Union
+from typing import Iterable, Union, Optional
 
 from celery import current_app, Celery
 from celery.local import Proxy
@@ -8,8 +8,15 @@ from celery.utils.log import get_task_logger
 logger = get_task_logger(__name__)
 
 
-def inspect_with_retry(inspect_retry_timeout=30, inspect_method=None, retry_if_None_returned=True,
-                       celery_app: Union[Celery, Proxy]=current_app, method_args: Iterable = None, verbose=False, **inspect_opts):
+def inspect_with_retry(
+    inspect_retry_timeout=30,
+    inspect_method=None,
+    retry_on_none_resp=True,
+    celery_app: Union[Celery, Proxy]=current_app,
+    method_args: Optional[Iterable]=None,
+    verbose=False,
+    **inspect_opts,
+):
 
     inspect_retry_timeout = inspect_retry_timeout if inspect_retry_timeout else 0
     timeout_time = time.monotonic() + inspect_retry_timeout
@@ -53,7 +60,7 @@ def inspect_with_retry(inspect_retry_timeout=30, inspect_method=None, retry_if_N
             return i
 
     inspection_result = _inspect(celery_app, inspect_method, method_args, **inspect_opts)
-    while inspection_result is None and retry_if_None_returned and time.monotonic() < timeout_time:
+    while inspection_result is None and retry_on_none_resp and time.monotonic() < timeout_time:
         time.sleep(0.1)
         logger.debug(f'[inspect] Retrying for a maximum of {inspect_retry_timeout}s')
         inspection_result = _inspect(celery_app, inspect_method, method_args, **inspect_opts)
@@ -84,10 +91,6 @@ def get_active_queues(**kwargs):
     kwargs.pop('inspect_method', None)
     return inspect_with_retry(inspect_method='active_queues', **kwargs)
 
-
-def get_task(**kwargs):
-    kwargs.pop('inspect_method', None)
-    return inspect_with_retry(inspect_method='query_task', **kwargs)
 
 def ping(**kwargs):
     kwargs.pop('inspect_method', None)

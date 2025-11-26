@@ -8,7 +8,7 @@ from collections import OrderedDict
 import inspect
 from datetime import datetime
 from functools import partial
-from typing import Callable, Iterable, Optional, Union, Any
+from typing import Callable, Iterable, Optional, Union, Any, Pattern
 from urllib.parse import urljoin
 from copy import deepcopy
 import dataclasses
@@ -31,7 +31,8 @@ from firexkit.result import get_tasks_names_from_results, wait_for_any_results, 
     RETURN_KEYS_KEY, wait_on_async_results_and_maybe_raise, get_result_logging_name, ChainInterruptedException, \
     ChainRevokedException, last_causing_chain_interrupted_exception, \
     wait_for_running_tasks_from_results, WaitOnChainTimeoutError, get_results, \
-    get_task_name_from_result, first_non_chain_interrupted_exception, forget_chain_results
+    get_task_name_from_result, first_non_chain_interrupted_exception, forget_subtree_results, \
+    FireXAsyncResult
 from firexkit.resources import get_firex_css_filepath, get_firex_logo_filepath
 from firexkit.firexkit_common import JINJA_ENV
 import time
@@ -111,7 +112,6 @@ class IllegalTaskNameException(Exception):
 
 
 def create_collapse_ops(flex_collapse_ops_spec):
-    from typing import Pattern
 
     if isinstance(flex_collapse_ops_spec, list):
         return flex_collapse_ops_spec
@@ -348,7 +348,7 @@ class FireXTask(Task):
         self._temp_loghandlers = None
         self.code_filepath = self.get_module_file_location()
 
-        self._from_plugin = False
+        self.from_plugin = False
 
     @property
     def root_orig(self):
@@ -400,10 +400,6 @@ class FireXTask(Task):
                 del self.context
 
     @property
-    def from_plugin(self):
-        return self._from_plugin
-
-    @property
     def task_label(self) -> str:
         """Returns a label for this task
 
@@ -419,10 +415,6 @@ class FireXTask(Task):
     @property
     def request_soft_time_limit(self):
         return self.request.timelimit[1]
-
-    @from_plugin.setter
-    def from_plugin(self, value):
-        self._from_plugin = value
 
     def initialize_context(self):
         self.context.enqueued_children = {}
@@ -451,7 +443,7 @@ class FireXTask(Task):
 
             explicit_keys = [k for k in task_return_keys if not self.is_dynamic_return(k)]
             if len(explicit_keys) != len(set(explicit_keys)):
-                raise ReturnsCodingException("Can't have duplicate explicit return keys")
+                raise ReturnsCodingException(f"Task {self.name} can't have duplicate explicit return keys")
 
             if not isinstance(task_return_keys, tuple):
                 task_return_keys = tuple(task_return_keys)
@@ -935,7 +927,7 @@ class FireXTask(Task):
     _UNBLOCKED = 'unblocked'
 
     @property
-    def enqueued_children(self):
+    def enqueued_children(self) -> list[FireXAsyncResult]:
         return list(self.context.enqueued_children.keys())
 
     @property
@@ -944,12 +936,11 @@ class FireXTask(Task):
                 result.get(self._STATE_KEY) == self._PENDING]
 
     @property
-    def nonready_enqueued_children(self):
-        return [child for child in self.context.enqueued_children if not child.ready()]
-
-    def _add_enqueued_child(self, child_result):
-        if child_result not in self.context.enqueued_children:
-            self.context.enqueued_children[child_result] = {}
+    def nonready_enqueued_children(self) -> list[FireXAsyncResult]:
+        return [
+            child for child in self.enqueued_children
+            if not child.ready()
+        ]
 
     def _remove_enqueued_child(self, child_result):
         if child_result in self.context.enqueued_children:
@@ -957,7 +948,7 @@ class FireXTask(Task):
 
     def _update_child_state(self, child_result, state):
         if child_result not in self.context.enqueued_children:
-            self._add_enqueued_child(child_result)
+            self.context.enqueued_children[child_result] = {}
         self.context.enqueued_children[child_result][self._STATE_KEY] = state
 
     def wait_for_any_children(self, pending_only=True, **kwargs):
@@ -969,15 +960,11 @@ class FireXTask(Task):
 
     def wait_for_children(self, pending_only=True, **kwargs):
         """Wait for all enqueued child tasks to run and complete"""
-        child_results = self.pending_enqueued_children if pending_only else self.enqueued_children
-        self.wait_for_specific_children(child_results=child_results, **kwargs)
+        self.wait_for_specific_children(
+            child_results=self.pending_enqueued_children if pending_only else self.enqueued_children,
+            **kwargs)
 
-    def forget_child_result(self,
-                            child_result: AsyncResult,
-                            do_not_forget_report_nodes: bool = True,
-                            do_not_forget_enqueue_once_nodes: bool = True,
-                            do_not_forget_cache_enabled_tasks_results: bool = True,
-                            **kwargs):
+    def forget_child_result(self, child_result: FireXAsyncResult):
 
         """Forget results of the tree rooted at the "chain-head" of child_result, while skipping subtrees in
         skip_subtree_nodes, as well as nodes in do_not_forget_nodes.
@@ -994,41 +981,42 @@ class FireXTask(Task):
 
         skip_subtree_nodes: set[str] = set()
 
-        if do_not_forget_enqueue_once_nodes:
-            enqueue_once_subtree_nodes = get_current_enqueue_child_once_uids(self.backend)
-            if enqueue_once_subtree_nodes:
-                skip_subtree_nodes.update(enqueue_once_subtree_nodes)
-                logger.debug(f'Enqueue once subtree nodes: {enqueue_once_subtree_nodes}')
+        # if do_not_forget_enqueue_once_nodes:
+        enqueue_once_subtree_nodes = get_current_enqueue_child_once_uids(self.backend)
+        if enqueue_once_subtree_nodes:
+            skip_subtree_nodes.update(enqueue_once_subtree_nodes)
+            logger.debug(f'Enqueue once subtree nodes: {enqueue_once_subtree_nodes}')
 
-        if do_not_forget_cache_enabled_tasks_results:
-            cache_enabled_subtree_nodes = get_current_cache_enabled_uids(self.backend)
-            if cache_enabled_subtree_nodes:
-                skip_subtree_nodes.update(cache_enabled_subtree_nodes)
-                logger.debug(f'Cache-enabled  subtree nodes: {cache_enabled_subtree_nodes}')
+        # if do_not_forget_cache_enabled_tasks_results:
+        cache_enabled_subtree_nodes = get_current_cache_enabled_uids(self.backend)
+        if cache_enabled_subtree_nodes:
+            skip_subtree_nodes.update(cache_enabled_subtree_nodes)
+            logger.debug(f'Cache-enabled  subtree nodes: {cache_enabled_subtree_nodes}')
 
-        report_nodes = None
-        if do_not_forget_report_nodes:
-            report_nodes = get_current_reports_uids(self.backend)
-            if report_nodes:
-                logger.debug(f'Report nodes: {report_nodes}')
+        report_nodes = get_current_reports_uids(self.backend)
+        if report_nodes:
+            logger.debug(f'Report nodes: {report_nodes}')
 
-        forget_chain_results(child_result,
-                             skip_subtree_nodes=skip_subtree_nodes,
-                             do_not_forget_nodes=report_nodes,
-                             **kwargs)
+        forget_subtree_results(
+            head_node_result=child_result.chain_root_ar(),
+            do_not_forget_ids=report_nodes,
+            skip_subtree_nodes=skip_subtree_nodes,
+        )
+
         # Since we forget the child, we need to also remove it from the list of enqueued_children
         self._remove_enqueued_child(child_result)
 
-    def forget_specific_children_results(self, child_results: list[AsyncResult], **kwargs):
+    def forget_specific_children_results(self, child_results: list[FireXAsyncResult]):
         """Forget results for the explicitly provided child_results"""
         for child in child_results:
-            self.forget_child_result(child, **kwargs)
+            self.forget_child_result(child)
 
-    def forget_enqueued_children_results(self, **kwargs):
-        """Forget results for the enqueued children of current task"""
-        self.forget_specific_children_results(self.enqueued_children, **kwargs)
-
-    def wait_for_specific_children(self, child_results, forget: bool = False, **kwargs):
+    def wait_for_specific_children(
+        self,
+        child_results: Union[list[FireXAsyncResult], FireXAsyncResult],
+        forget: bool=False,
+        **kwargs,
+    ):
         """Wait for the explicitly provided child_results to run and complete"""
         if isinstance(child_results, AsyncResult):
             child_results = [child_results]
@@ -1037,7 +1025,8 @@ class FireXTask(Task):
             try:
                 wait_on_async_results_and_maybe_raise(child_results, caller_task=self, **kwargs)
             finally:
-                [self._update_child_state(child_result, self._UNBLOCKED) for child_result in child_results]
+                for c in child_results:
+                    self._update_child_state(c, self._UNBLOCKED)
                 if forget:
                     self.forget_specific_children_results(child_results)
 
@@ -1068,7 +1057,7 @@ class FireXTask(Task):
             chain = InjectArgs(uid=self.uid) | chain
 
         verify_chain_arguments(chain)
-        child_result = chain.apply_async(**apply_async_options)
+        child_result : FireXAsyncResult = chain.apply_async(**apply_async_options)
         if apply_async_epilogue:
             apply_async_epilogue(child_result)
         if add_to_enqueued_children:
@@ -1312,29 +1301,34 @@ class FireXTask(Task):
         self.enqueue_child(chain, **enqueue_opts)
 
     def revoke_nonready_children(self):
-        nonready_children = self.nonready_enqueued_children
-        if nonready_children:
+        if self.nonready_enqueued_children:
             logger.info('Nonready children of current task exist.')
-            revoked = [self.revoke_child(child_result) for child_result in nonready_children]
-            wait_for_running_tasks_from_results([result for result_list in revoked for result in result_list])
+            revoked = []
+            for c in self.nonready_enqueued_children:
+                revoked += self.revoke_child(c)
+            wait_for_running_tasks_from_results(revoked)
 
-    def revoke_child(self, result: AsyncResult, terminate=True, wait=False, timeout=None):
-        name = get_result_logging_name(result)
-        logger.debug('Revoking child %s' % name)
-        result.revoke(terminate=terminate, wait=wait, timeout=timeout)
-        revoked_results = [result]
+    def revoke_child(
+        self,
+        result: FireXAsyncResult,
+        terminate=True,
+        timeout=None,
+    ) -> list[FireXAsyncResult]:
+
+        logger.debug(f'Revoking child {result.log_name}')
+        result.revoke(terminate=terminate, timeout=timeout)
+        logger.info(f'Revoked {result.log_name}')
         self._update_child_state(result, self._UNBLOCKED)
-        logger.info(f'Revoked {name}')
 
+        revoked_results : list[FireXAsyncResult] = [result]
         while result.parent:
             # Walk up the chain, since nobody is waiting on those tasks explicitly.
             result = result.parent
             if not result.ready():
-                name = get_result_logging_name(result)
-                logger.debug(f'Revoking parent {name}')
-                result.revoke(terminate=terminate, wait=wait, timeout=timeout)
+                logger.debug(f'Revoking parent {result.log_name}')
+                result.revoke(terminate=terminate, timeout=timeout)
                 revoked_results.append(result)
-                logger.info(f'Revoked {name}')
+                logger.info(f'Revoked {result.log_name}')
         return revoked_results
 
     @property
@@ -1562,6 +1556,13 @@ class FireXTask(Task):
         }
         self.send_firex_event_raw({'flame_data': formatted_data})
 
+def climb_up_until_null_parent(result: FireXAsyncResult) -> FireXAsyncResult:
+    r = result
+    parent = r.fx_parent()
+    while parent is not None and r != parent:
+        r = parent
+        parent = parent.fx_parent()
+    return r
 
 def undecorate_func(func):
     undecorated_func = func

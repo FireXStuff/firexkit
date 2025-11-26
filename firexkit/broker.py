@@ -1,9 +1,19 @@
 import time
+import typing
+
 from celery.utils.log import get_task_logger
 logger = get_task_logger(__name__)
 
+T = typing.TypeVar('T')
 
-def handle_broker_timeout(callable_func, args=(), kwargs=None, timeout=15*60, retry_delay=1, reraise_on_timeout=True):
+def handle_broker_timeout(
+    callable_func: typing.Callable[..., T],
+    args=(),
+    kwargs=None,
+    timeout=15*60,
+    retry_delay=1,
+    reraise_on_timeout=True,
+) -> typing.Optional[T]:
     if kwargs is None:
         kwargs = {}
     maximum_retry_delay = retry_delay * 10

@@ -12,8 +12,8 @@ from celery.signals import before_task_publish, task_prerun, task_postrun
 from celery.states import FAILURE, REVOKED, PENDING, STARTED, RECEIVED, RETRY, SUCCESS, READY_STATES
 from celery.utils.log import get_task_logger
 from firexkit.broker import handle_broker_timeout
-from firexkit.inspect import get_task, get_active_queues, get_active, get_reserved
 from firexkit.revoke import RevokedRequests
+from firexkit.firex_worker import FireXWorkerId, FireXCeleryInspector
 
 RETURN_KEYS_KEY = '__task_return_keys'
 _TASK_POST_RUN_KEY = 'TASK_POST_RUN'
@@ -22,12 +22,139 @@ _TASK_POST_RUN_KEY = 'TASK_POST_RUN'
 RUN_RESULTS_NAME = 'chain_results'
 RUN_UNSUCCESSFUL_NAME = 'unsuccessful_services'
 
-ResultId = Union[AsyncResult, str]
-
 logger = get_task_logger(__name__)
 
+class _Unset:
+    pass
 
-def get_task_info_from_result(result, key: str = None):
+_UNSET = _Unset()
+
+class FireXAsyncResult(AsyncResult):
+
+    # AsyncResult objects cannot be in memory after the broker (i.e. backend) shutdowns, otherwise errors are
+    # produced when they are garbage collected. We therefore monkey patch AsyncResults to track all instances
+    # (e.g. from unpickle, instantiated directly, etc) so that disable_all_async_results can disable their
+    # references to the backend.
+    _ar_refs : list[weakref.ReferenceType['FireXAsyncResult']] = []
+
+    def __init__(self, *args, **kwargs):
+        FireXAsyncResult._ar_refs.append(weakref.ref(self))
+        super().__init__(*args, **kwargs)
+
+        self._worker_id : Union[FireXWorkerId, _Unset, None] = _UNSET
+        self._log_name : Optional[str] = None
+
+    @ property
+    def log_name(self) -> str:
+        if self._log_name is None:
+            self._log_name = get_task_name_from_result(self)
+        return self._log_name
+
+    def get_worker_id(self) -> Optional[FireXWorkerId]:
+        if isinstance(self._worker_id, _Unset):
+            celery_hostname = self._get_celery_hostname()
+            if celery_hostname and '@' in celery_hostname:
+                self._worker_id = FireXWorkerId.worker_id_from_str(celery_hostname)
+            else:
+                self._worker_id = None
+        return self._worker_id
+
+    def _get_celery_hostname(self) -> Optional[str]:
+        info = handle_broker_timeout(lambda r: r.info, args=(self,))
+        try:
+            # NOTE: if the task completes after the check for state right above but before the call
+            # to handle_broker_timeout(), the type of 'info' is whatever the task returned, not the internal
+            # Celery dictionary we want. It can be an exception, or even a dictionary with a random 'hostname'.
+            # In the latter case _is_worker_alive() will return False, but since we retry _is_worker_alive() that
+            # should be fine -- this timing issue cannot happen twice for the same task.
+            hostname = info.get('hostname')
+        except (AttributeError, TypeError):
+            logger.error(f'Cannot get hostname from {info}')
+        else:
+            if isinstance(hostname, str):
+                return hostname
+            else:
+                logger.error(f'Ignoring unexpected task {self.id} hostname {hostname}')
+        return None
+
+    def fx_ready(self, timeout=15*60, retry_delay=1) -> bool:
+        ready = bool(
+            handle_broker_timeout(self.ready, timeout=timeout, retry_delay=retry_delay)
+        )
+        if ready:
+            return True
+        return RevokedRequests.instance().is_revoked(self.id)
+
+    def fx_wait(self, max_wait=None):
+        wait_on_async_results(self, max_wait=max_wait)
+
+    def fx_state(self, timeout=15 * 60, retry_delay=1) -> Optional[str]:
+        celery_state = handle_broker_timeout(
+            getattr, args=(self, 'state'),
+            timeout=timeout,
+            retry_delay=retry_delay)
+        if celery_state in [SUCCESS, FAILURE, REVOKED]:
+            return celery_state
+        if RevokedRequests.instance().is_revoked(self.id):
+            return REVOKED
+        return celery_state
+
+    def fx_failed(self) -> bool:
+        return bool(
+            handle_broker_timeout(self.failed))
+
+    def fx_parent(self) -> Optional['FireXAsyncResult']:
+        return handle_broker_timeout(
+            getattr,
+            args=(self, 'parent'),
+        )
+
+    def fx_result(self) -> Any:
+        handle_broker_timeout(
+            getattr,
+            args=(self, 'result'),
+        )
+
+    def fx_postrun_complete(self) -> bool:
+        return get_task_postrun_info(self)
+
+    def chain_root_ar(self) -> 'FireXAsyncResult':
+        r = self
+        parent = r.fx_parent()
+        while parent is not None and r != parent:
+            r = parent
+            parent = parent.fx_parent()
+        return r
+
+    def disable_backend(self):
+        self.backend = None
+
+    @classmethod
+    def _get_async_results(cls) -> list['FireXAsyncResult']:
+        return [
+            ar for ar in [
+                ar_ref() for ar_ref in cls._ar_refs
+            ] if ar
+        ]
+
+    @classmethod
+    def disable_all_async_results(cls, extra_ar: 'FireXAsyncResult'):
+        for ar in cls._get_async_results():
+            ar.disable_backend()
+        extra_ar.disable_backend()
+        try:
+            children = extra_ar.children or []
+        except AttributeError:
+            pass
+        else:
+            for child in children:
+                child.disable_backend()
+
+
+
+
+
+def _get_task_info_from_result(result: FireXAsyncResult, key: Optional[str]=None) -> str:
     try:
         backend = result.app.backend
     except AttributeError:
@@ -47,16 +174,16 @@ def get_task_info_from_result(result, key: str = None):
 
 def get_task_name_from_result(result):
     try:
-        return get_task_info_from_result(result=result, key='name')
+        return _get_task_info_from_result(result=result, key='name')
     except AttributeError:
-        return get_task_info_from_result(result=result)
+        return _get_task_info_from_result(result=result)
 
 
-def get_task_queue_from_result(result):
+def _get_task_queue_from_result(result: FireXAsyncResult):
     queue = ''
     try:
         while not queue and result:
-            queue = get_task_info_from_result(result=result, key='queue')
+            queue = _get_task_info_from_result(result=result, key='queue')
             #  Try to get queue of parent tasks in the same chain, if current item hasn't been scheduled yet
             result = result.parent
     except AttributeError:
@@ -91,9 +218,11 @@ def update_task_name(sender, task_id, *_args, **_kwargs):
     # Although the name was populated in populate_task_info before_task_publish, the name
     # can be inaccurate if it was a plugin. We can only over-write it with the accurate name
     # at task_prerun.
-    callable_func = current_app.backend.client.hset
-    args = (task_id, 'name', sender.name)
-    handle_broker_timeout(callable_func=callable_func, args=args, timeout=5*60, reraise_on_timeout=False)
+    handle_broker_timeout(
+        callable_func=current_app.backend.client.hset,
+        args=(task_id, 'name', sender.name),
+        timeout=5*60,
+        reraise_on_timeout=False)
 
 
 @task_postrun.connect
@@ -101,22 +230,18 @@ def mark_task_postrun(task, task_id, **_kwargs):
     task.backend.client.hset(task_id, _TASK_POST_RUN_KEY, 'True')
 
 
-def get_task_postrun_info(result):
+def get_task_postrun_info(result: FireXAsyncResult) -> bool:
     postrun = True
     try:
-        postrun = get_task_info_from_result(result, key=_TASK_POST_RUN_KEY)
+        postrun = bool(_get_task_info_from_result(result, key=_TASK_POST_RUN_KEY))
     except AttributeError:
-        logger.info(f'Broker doesn\'t support postrun info; probably a dummy broker. Defaulting to postrun=True')
+        logger.info('Broker doesn\'t support postrun info; probably a dummy broker. Defaulting to postrun=True')
 
     return postrun
 
 
 def mark_queues_ready(*queue_names: str):
     current_app.backend.client.sadd('QUEUES', *queue_names)
-
-
-def was_queue_ready(queue_name: str):
-    return current_app.backend.client.sismember('QUEUES', queue_name)
 
 
 def is_result_ready(result: AsyncResult, timeout=15*60, retry_delay=1):
@@ -180,137 +305,142 @@ def find_unsuccessful_in_chain(result: AsyncResult) -> dict[str, list[str]]:
     return create_unsuccessful_result(failures, did_not_run)
 
 
-def _check_for_failure_in_parents(result, timeout=15 * 60, retry_delay=1):
-    failed_parent = revoked_parent = None
-    parent = handle_broker_timeout(getattr, args=(result, 'parent'), timeout=timeout, retry_delay=retry_delay)
+def _check_for_failure_in_parents(result: FireXAsyncResult):
+    failed_parent : Optional[FireXAsyncResult] = None
+    revoked_parent : Optional[FireXAsyncResult] = None
+    parent = result.fx_parent()
     while parent and parent != result:
-
-        state = handle_broker_timeout(getattr, args=(parent, 'state'), timeout=timeout, retry_delay=retry_delay)
+        state = parent.fx_state()
         if state == FAILURE:
             failed_parent = parent
             break
 
-        if state == REVOKED or RevokedRequests.instance().is_revoked(parent):
+        if state == REVOKED:
             revoked_parent = parent
             break
 
         result = parent
-        parent = handle_broker_timeout(getattr, args=(parent, 'parent'), timeout=timeout, retry_delay=retry_delay)
-    else:
-        return  # <-- loop finished with no errors in parents
+        parent = parent.fx_parent()
 
     if revoked_parent:
-        raise ChainRevokedException(task_id=str(revoked_parent),
-                                    task_name=get_task_name_from_result(revoked_parent))
+        raise ChainRevokedException.from_ar(revoked_parent)
 
-    #  If we get here, failed_parent holds a failed parent
-    parent = handle_broker_timeout(getattr, args=(failed_parent, 'parent'), timeout=timeout, retry_delay=retry_delay)
-    while parent and parent != failed_parent:  # Find first failed parent, now that celery propagates parent failures
-        parent_failed = handle_broker_timeout(parent.failed,
-                                              timeout=timeout,
-                                              retry_delay=retry_delay)
-        if not parent_failed:
-            break
+    if failed_parent:
+        #  If we get here, failed_parent holds a failed parent
+        parent = failed_parent.fx_parent()
+        while parent and parent != failed_parent:  # Find first failed parent, now that celery propagates parent failures
+            if not parent.fx_failed():
+                break
 
-        failed_parent = parent
-        parent = handle_broker_timeout(getattr, args=(parent, 'parent'), timeout=timeout,
-                                       retry_delay=retry_delay)
+            failed_parent = parent
+            parent = parent.fx_parent()
 
-    cause = handle_broker_timeout(getattr, args=(failed_parent, 'result'), timeout=timeout, retry_delay=retry_delay)
-    cause = cause if isinstance(cause, Exception) else None
-    raise ChainInterruptedException(task_id=str(failed_parent),
-                                    task_name=get_task_name_from_result(failed_parent),
-                                    cause=cause)
+        failed_exc = failed_parent.fx_result()
+        cause = failed_exc if isinstance(failed_exc, Exception) else None
+        raise ChainInterruptedException.from_ar(failed_parent, cause=cause)
 
 
-def _is_worker_alive(result: AsyncResult, retries=1):
-    task_name = get_result_logging_name(result)
+def _is_worker_alive(
+    result: FireXAsyncResult,
+    check_task_worker_timeout: int,
+    check_task_worker_inspect_retry_timeout: int,
+) -> bool:
+    task_name = result.log_name
+    retries = 1
     tries = 0
+
+    logger.error(f'CHECKING {result.id} WORKER ALIVE {check_task_worker_timeout} and retry {check_task_worker_inspect_retry_timeout}')
+
+    inspect = FireXCeleryInspector(
+        current_app,
+        inspect_timeout=check_task_worker_timeout,
+        retry_timeout=check_task_worker_inspect_retry_timeout,
+        # retry_on_none_resp=False,
+    )
 
     # NOTE: Retries for possible false negative in the case where task changes host in the small timing window
     # between getting task state / info and checking for aliveness. Retries for broker issues are handled downstream
     while tries <= retries:
-        state = handle_broker_timeout(lambda r: r.state, args=(result,))
+        logger.error('check state')
+        state = result.fx_state(timeout=check_task_worker_timeout)
+        logger.error('done state')
         if not state:
-            logger.debug(f'Cannot get state for {task_name}; assuming task is alive')
+            logger.error(f'Cannot get state for {task_name}; assuming task is alive')
             return True
 
-        if state == STARTED or state == RECEIVED:
+        if state in [RECEIVED, STARTED]:
             # Query the worker to see if it knows about this task
-            info = handle_broker_timeout(lambda r: r.info, args=(result,))
-            try:
-                # NOTE: if the task completes after the check for state right above but before the call
-                # to handle_broker_timeout(), the type of 'info' is whatever the task returned, not the internal
-                # Celery dictionary we want. It can be an exception, or even a dictionary with a random 'hostname'.
-                # In the latter case _is_worker_alive() will return False, but since we retry _is_worker_alive() that
-                # should be fine -- this timing issue cannot happen twice for the same task.
-                hostname = info.get('hostname')
-            except AttributeError:
-                hostname = None
-
-            if not hostname:
-                logger.debug(f'Cannot get run info for {task_name}; assuming task is alive.'
-                             f' Info: {info}, Hostname: {hostname}')
+            worker_id = result.get_worker_id()
+            if not worker_id:
+                logger.error(f'Cannot get task info for {task_name}; assuming task is alive.')
                 return True
 
             task_id = result.id
-            task_info = get_task(method_args=(task_id,), destination=(hostname,), timeout=180)
-            if task_info and any(task_info.values()):
-                return True
+            logger.error('check get_task')
+            task_info = task_id and inspect.get_task(task_id, worker_ids=[worker_id])
+            logger.error('done get_task')
+            if task_info:
+                # can't tell if remote proc is alive, not worth ssh, just assume alive.
+                if not worker_id.on_cur_host():
+                    return True
+                worker_and_parent_alive = task_info.worker_and_parent_procs_alive(on_error=None)
+                if worker_and_parent_alive is not None:
+                    return worker_and_parent_alive
 
             # Try get_active and get_reserved, since we suspect query_task (the api used by get_task above)
             # may be broken sometimes.
-            active_tasks = get_active(destination=(hostname,), timeout=180)
-            task_list = active_tasks.get(hostname) if active_tasks else None
-            if task_list:
-                for task in task_list:
-                    this_task_id = task.get('id')
-                    if this_task_id == task_id:
-                        return True
+            active_tasks = inspect.get_single_worker_active_tasks(worker_id)
+            for active_task in active_tasks:
+                if active_task.id == task_id:
+                    logger.error('Alive due to worker having tasks.')
+                    return True
 
-            reserved_tasks = get_reserved(destination=(hostname,), timeout=180)
-            task_list = reserved_tasks.get(hostname) if reserved_tasks else None
-            if task_list:
-                for task in task_list:
-                    this_task_id = task.get('id')
-                    if this_task_id == task_id:
-                        return True
+            reserved_tasks = inspect.get_single_worker_reserved_tasks(worker_id)
+            for reserved_task in reserved_tasks:
+                if reserved_task.id == task_id:
+                    logger.error(f'Alive due to worker having reserved.')
+                    return True
 
-            logger.debug(f'Task inspection for {task_name} on {hostname} with id '
-                         f'of {task_id} returned:\n{pformat(task_info)}\n'
-                         f'Active tasks:\n{pformat(active_tasks)}\n'
-                         f'Reserved tasks:\n{pformat(reserved_tasks)}')
+            logger.error(
+                f'Task inspection for {task_name} on {worker_id} with id '
+                f'of {task_id} returned:\n{pformat(task_info)}\n'
+                f'Active tasks:\n{pformat(active_tasks)}\n'
+                f'Reserved tasks:\n{pformat(reserved_tasks)}')
 
         elif state == PENDING or state == RETRY:
             # Check if task queue is alive
-            task_queue = get_task_queue_from_result(result)
+            task_queue = _get_task_queue_from_result(result)
             if not task_queue:
-                logger.debug(f'Cannot get task queue for {task_name}; assuming task is alive.')
+                logger.error(f'Cannot get task queue for {task_name}; assuming task is alive.')
                 return True
 
-            queue_seen = was_queue_ready(queue_name=task_queue)
+            queue_seen = current_app.backend.client.sismember('QUEUES', task_queue)
             if not queue_seen:
-                logger.debug(f'Queue "{task_queue}" for {task_name} not seen yet; assuming task is alive.')
+                logger.error(f'Queue "{task_queue}" for {task_name} not seen yet; assuming task is alive.')
                 return True
 
-            queues = get_active_queues(timeout=180)
-            active_queues = {queue['name'] for node in queues.values() for queue in node} if queues else set()
-            if task_queue in active_queues:
+            queues_by_worker = inspect.get_active_tasks_by_worker_id()
+            active_queues_names = {
+                queue.name
+                for worker_queues in queues_by_worker.values()
+                for queue in worker_queues}
+
+            if task_queue in active_queues_names:
                 return True
 
-            logger.debug(f'Active queues inspection for {task_name} on queue {task_queue} returned:\n'
-                         f'{pformat(queues)}\n'
-                         f'Active queues: {pformat(active_queues)}')
+            logger.error(f'Active queues inspection for {task_name} on queue {task_queue} returned:\n'
+                         f'{pformat(queues_by_worker)}\n'
+                         f'Active queues: {pformat(active_queues_names)}')
 
         elif state == SUCCESS:
             return True  # Timing; possible if task state changed after we waited on it but before we got here
-
         else:
-            logger.debug(f'Unknown state ({state} for task {task_name}; assuming task is alive.')
+            logger.error(f'Unknown state ({state} for task {task_name}; assuming task is alive.')
             return True
 
         tries += 1
-        logger.info(f'Task {task_name} is not responding to queries. Tries: {tries}')
+        # info
+        logger.error(f'Task {task_name} is not responding to queries. Tries: {tries}')
 
     return False
 
@@ -331,11 +461,12 @@ def send_block_task_states_to_caller_task(func):
     return wrapper
 
 
-def wait_for_running_tasks_from_results(results, max_wait=2*60, sleep_between_iterations=0.05):
+def wait_for_running_tasks_from_results(results: list[FireXAsyncResult], max_wait=2*60):
+    sleep_between_iterations=0.05
     run_states = set(READY_STATES) | {STARTED, RETRY}
     running_tasks = []
     for result in results:
-        if result.state in run_states and not get_task_postrun_info(result):
+        if result.state in run_states and not result.fx_postrun_complete():
             running_tasks.append(result)
 
     max_sleep = sleep_between_iterations * 60  # Somewhat arbitrary
@@ -351,7 +482,7 @@ def wait_for_running_tasks_from_results(results, max_wait=2*60, sleep_between_it
             break
 
         time.sleep(sleep_between_iterations)
-        running_tasks = [result for result in running_tasks if not get_task_postrun_info(result)]
+        running_tasks = [r for r in running_tasks if not r.fx_postrun_complete()]
         sleep_between_iterations = sleep_between_iterations * 1.01 \
             if sleep_between_iterations*1.01 < max_sleep else max_sleep
 
@@ -361,16 +492,20 @@ def wait_for_running_tasks_from_results(results, max_wait=2*60, sleep_between_it
 
 
 @send_block_task_states_to_caller_task
-def wait_on_async_results(results,
-                          max_wait=None,
-                          callbacks: Iterator[WaitLoopCallBack] = tuple(),
-                          sleep_between_iterations=0.05,
-                          check_task_worker_frequency=600,
-                          fail_on_worker_failures=3,
-                          log_msg=True,
-                          **_kwargs):
-    if not results:
-        return
+def wait_on_async_results(
+    results: Union[FireXAsyncResult, Iterable[FireXAsyncResult]],
+    max_wait=None,
+    callbacks: Iterable[WaitLoopCallBack]=tuple(),
+    sleep_between_iterations=0.05,
+    check_task_worker_frequency=600,
+    check_task_worker_timeout=180,
+    check_task_worker_inspect_retry_timeout=30,
+    fail_on_worker_failures=3,
+    log_msg=True,
+    **_kwargs,
+):
+
+    results = results or []
 
     if isinstance(results, AsyncResult):
         results = [results]
@@ -380,22 +515,19 @@ def wait_on_async_results(results,
     start_time = time.monotonic()
     last_callback_time = {callback.func: start_time for callback in callbacks}
     for result in results:
-        logging_name = get_result_logging_name(result)
+        logging_name = result.log_name
         if log_msg:
-            logger.debug('-> Waiting for %s to complete' % logging_name)
+            logger.debug(f'-> Waiting for {logging_name} to complete')
 
         try:
             task_worker_failures = 0
             last_dead_task_worker_check = time.monotonic()
-            while not is_result_ready(result):
-                if RevokedRequests.instance().is_revoked(result):
-                    break
+            while not result.fx_ready():
                 _check_for_failure_in_parents(result)
 
                 current_time = time.monotonic()
                 if max_wait and (current_time - start_time) > max_wait:
-                    logging_name = get_result_logging_name(result)
-                    raise WaitOnChainTimeoutError('Result ID %s was not ready in %d seconds' % (logging_name, max_wait))
+                    raise WaitOnChainTimeoutError(f'Result ID {logging_name} was not ready in {max_wait} seconds')
 
                 # callbacks
                 for callback in callbacks:
@@ -404,18 +536,23 @@ def wait_on_async_results(results,
                         last_callback_time[callback.func] = current_time
 
                 # Check for dead workers
-                if check_task_worker_frequency and fail_on_worker_failures and \
-                        (current_time - last_dead_task_worker_check) > check_task_worker_frequency:
-                    alive = _is_worker_alive(result=result)
+                if (
+                    check_task_worker_frequency
+                    and fail_on_worker_failures
+                    and (current_time - last_dead_task_worker_check) > check_task_worker_frequency
+                ):
+                    alive = _is_worker_alive(
+                        result,
+                        check_task_worker_timeout,
+                        check_task_worker_inspect_retry_timeout=check_task_worker_inspect_retry_timeout)
+
                     last_dead_task_worker_check = current_time
                     if not alive:
                         task_worker_failures += 1
-                        logger.warning(f'Task {get_task_name_from_result(result)} appears to be a zombie.'
+                        logger.warning(f'Task {logging_name} appears to be a zombie.'
                                        f' Failures: {task_worker_failures}')
                         if task_worker_failures >= fail_on_worker_failures:
-                            task_id = str(result)
-                            task_name = get_task_name_from_result(result)
-                            raise ChainInterruptedByZombieTaskException(task_id=task_id, task_name=task_name)
+                            raise ChainInterruptedByZombieTaskException.from_ar(result)
                     else:
                         task_worker_failures = 0
 
@@ -426,34 +563,34 @@ def wait_on_async_results(results,
             # If failure happened in a chain, raise from the failing task within the chain
             _check_for_failure_in_parents(result)
 
-            result_state = handle_broker_timeout(getattr, args=(result, 'state'))
+            result_state = result.fx_state()
             if result_state == REVOKED:
                 # Wait for revoked tasks to actually finish running
                 # Somewhat long max_wait in case a task does work when revoked, like
                 # killing a child run launched by the task.
                 wait_for_running_tasks_from_results([result], max_wait=5*60)
-                raise ChainRevokedException(task_id=str(result),
-                                            task_name=get_task_name_from_result(result))
+                raise ChainRevokedException.from_ar(result)
             if result_state == PENDING:
                 # Pending tasks can be in revoke list. State will still be PENDING.
-                raise ChainRevokedPreRunException(task_id=str(result),
-                                                  task_name=get_task_name_from_result(result))
+                raise ChainRevokedPreRunException.from_ar(result)
             if result_state == FAILURE:
-                cause = result.result if isinstance(result.result, Exception) else None
-                raise ChainInterruptedException(task_id=str(result),
-                                                task_name=get_task_name_from_result(result),
-                                                cause=cause)
+                raise ChainInterruptedException.from_ar(
+                    result,
+                    cause=result.result if isinstance(result.result, Exception) else None,
+                )
 
         except (ChainRevokedException, ChainInterruptedException) as e:
             failures.append(e)
 
-    if len(failures) == 1:
-        raise failures[0]
-    elif failures:
-        failed_task_ids = [e.task_id for e in failures if hasattr(e, 'task_id')]
-        multi_exception = MultipleFailuresException(failed_task_ids)
-        multi_exception.failures = failures
-        raise multi_exception
+    if failures:
+        if len(failures) == 1:
+            to_raise = failures[0]
+        else:
+            to_raise = MultipleFailuresException(
+                [e.task_id for e in failures if hasattr(e, 'task_id')],
+                failures=failures)
+
+        raise to_raise
 
 
 def wait_on_async_results_and_maybe_raise(results, raise_exception_on_failure=True, caller_task=None, **kwargs):
@@ -472,10 +609,15 @@ def _warn_on_never_callback(callbacks, poll_max_wait):
 
 
 # This is a generator that returns one AsyncResult as it completes
-def wait_for_any_results(results, max_wait=None, poll_max_wait=0.1, log_msg=False,
-                         callbacks: Iterator[WaitLoopCallBack] = tuple(),
-                         **kwargs):
-    if isinstance(results, AsyncResult):
+def wait_for_any_results(
+    results: Union[FireXAsyncResult, list[FireXAsyncResult]],
+    max_wait=None,
+    poll_max_wait=0.1,
+    log_msg=False,
+    callbacks: Iterable[WaitLoopCallBack] = tuple(),
+    **kwargs,
+):
+    if isinstance(results, FireXAsyncResult):
         results = [results]
 
     _warn_on_never_callback(callbacks, poll_max_wait)
@@ -487,7 +629,7 @@ def wait_for_any_results(results, max_wait=None, poll_max_wait=0.1, log_msg=Fals
     logger.debug('Waiting for any of the following tasks to complete:\n' + '\n'.join(logging_names))
     while len(results):
         if max_wait and max_wait < time.time() - start_time:
-            raise WaitOnChainTimeoutError('Results %r were still not ready after %d seconds' % (results, max_wait))
+            raise WaitOnChainTimeoutError(f'Results {results} were still not ready after {max_wait} seconds')
         for result in results:
             try:
                 wait_on_async_results_and_maybe_raise([result], max_wait=poll_max_wait, log_msg=log_msg, callbacks=callbacks, **kwargs)
@@ -524,6 +666,13 @@ class ChainRevokedException(ChainException):
             message += '[%s]' % self.task_id
         return message
 
+    @staticmethod
+    def from_ar(ar: FireXAsyncResult) -> 'ChainRevokedException':
+        return ChainRevokedException(
+            task_id=ar.id,
+            task_name=ar.log_name,
+        )
+
 
 class ChainRevokedPreRunException(ChainRevokedException):
     pass
@@ -546,6 +695,14 @@ class ChainInterruptedException(ChainException):
             message += '[%s]' % self.task_id
         return message
 
+    @classmethod
+    def from_ar(cls, ar: FireXAsyncResult, cause=None) -> 'ChainInterruptedException':
+        return cls(
+            task_id=ar.id,
+            task_name=ar.log_name,
+            cause=cause,
+        )
+
 
 class ChainInterruptedByZombieTaskException(ChainInterruptedException):
     def __str__(self):
@@ -555,8 +712,9 @@ class ChainInterruptedByZombieTaskException(ChainInterruptedException):
 class MultipleFailuresException(ChainInterruptedException):
     MESSAGE = "The chain has been interrupted by multiple failing microservices: %s"
 
-    def __init__(self, task_ids=('UNKNOWN',)):
+    def __init__(self, task_ids=('UNKNOWN',), failures=None):
         self.task_ids = task_ids
+        self.failures = failures
         super(ChainInterruptedException, self).__init__()
 
     def __str__(self):
@@ -633,7 +791,7 @@ def results2tuple(results: dict, return_keys: Union[str, tuple]) -> tuple:
 
 def get_results(result: AsyncResult,
                 return_keys=(),
-                parent_id: str = None,
+                parent_id: Optional[str] = None,
                 return_keys_only=True,
                 merge_children_results=False,
                 extract_from_parents=True):
@@ -707,62 +865,6 @@ def get_results_with_default(result: AsyncResult,
         return default
 
 
-FIREX_AR_REFS_ATTR = '__firex_ar_refs__'
-
-
-def is_async_result_monkey_patched_to_track():
-    return hasattr(AsyncResult, FIREX_AR_REFS_ATTR)
-
-
-def teardown_monkey_patch_async_result_to_track_instances():
-
-    if hasattr(AsyncResult, '__orig_init__'):
-        AsyncResult.__init__ = AsyncResult.__orig_init__
-        delattr(AsyncResult, '__orig_init__')
-    try:
-        delattr(AsyncResult, FIREX_AR_REFS_ATTR)
-    except AttributeError:
-        pass
-
-
-def monkey_patch_async_result_to_track_instances():
-    assert not is_async_result_monkey_patched_to_track(), "Cannot monkey patch to track AsyncResults twice."
-
-    AsyncResult.__orig_init__ = AsyncResult.__init__
-    setattr(AsyncResult, FIREX_AR_REFS_ATTR, [])
-
-    def tracking_init(self, *args, **kwargs):
-        getattr(AsyncResult, FIREX_AR_REFS_ATTR).append(weakref.ref(self))
-        AsyncResult.__orig_init__(self, *args, **kwargs)
-
-    def get_ar_instances() -> Iterator[AsyncResult]:
-        for inst_ref in getattr(AsyncResult, FIREX_AR_REFS_ATTR):
-            inst = inst_ref()
-            if inst is not None:
-                yield inst
-
-    AsyncResult.__init__ = tracking_init
-    AsyncResult.get_ar_instances = get_ar_instances
-
-
-def disable_all_async_results():
-    if is_async_result_monkey_patched_to_track():
-        for async_result in AsyncResult.get_ar_instances():
-            async_result.backend = None
-
-
-def disable_async_result(result: AsyncResult):
-    # fetching the children could itself result in using the backend. So we disable it before hand
-    result.backend = None
-    try:
-        children = result.children or []
-    except AttributeError:
-        return
-
-    for child in children:
-        disable_async_result(child)
-
-
 #
 # Returns the first exception that is not a "ChainInterruptedException"
 # in the exceptions stack.
@@ -784,48 +886,32 @@ def last_causing_chain_interrupted_exception(ex):
     return e
 
 
-def climb_up_until_null_parent(result: AsyncResult) -> AsyncResult:
-    r = result
-    while r.parent is not None:
-        r = r.parent
-    return r
-
-
-def get_result_id(r: ResultId) -> str:
-    """Return the string id of r if it was an AsyncResult, otherwise returns r"""
-    return r.id if isinstance(r, AsyncResult) else r
-
-
-def get_all_children(node, timeout=180, skip_subtree_nodes: Optional[list[ResultId]] = None) -> Iterator[AsyncResult]:
+def get_all_children(
+    node: FireXAsyncResult,
+    skip_subtree_nodes: set[str],
+) -> set[FireXAsyncResult]:
     """Iterate the children of node, skipping any nodes found in skip_subtree_nodes"""
     stack = deque([node])
+    children : set[FireXAsyncResult] = set()
+    timeout = 180
     timeout_time = time.monotonic() + timeout
     while stack:
-        node = stack.popleft()
-        node_name = get_result_logging_name(node)
-        if skip_subtree_nodes and get_result_id(node) in skip_subtree_nodes:
-            continue
-        yield node
+        child : FireXAsyncResult = stack.popleft()
+        if child.id not in skip_subtree_nodes:
+            children.add(child)
 
-        while time.monotonic() < timeout_time and not node.ready():
-            logger.debug(f'{node_name} state is still {node.state}...sleeping and retrying')
-            time.sleep(0.5)
-        stack.extend(child for child in node.children or [])
-
-
-def forget_single_async_result(r: AsyncResult):
-    """Forget the result of this task
-
-    AsyncResult.forget() also forgets the parent (which is not always desirable), so, we had to implement our own
-    """
-    logger.debug(f'Forgetting result: {get_result_logging_name(r)}')
-    r._cache = None
-    r.backend.forget(r.id)
+            while time.monotonic() < timeout_time and not child.ready():
+                logger.debug(f'{child.log_name} state is still {child.state}...sleeping and retrying')
+                time.sleep(0.5)
+            stack.extend(child for child in child.children or [])
+    return children
 
 
-def forget_subtree_results(head_node_result: AsyncResult,
-                           skip_subtree_nodes: Optional[Iterable[ResultId]] = None,
-                           do_not_forget_nodes: Optional[Iterable[ResultId]] = None) -> None:
+def forget_subtree_results(
+    head_node_result: FireXAsyncResult,
+    skip_subtree_nodes: set[str],
+    do_not_forget_ids: set[str],
+):
     """Forget results of the subtree rooted at head_node_result, while skipping subtrees in skip_subtree_nodes,
     as well as nodes in do_not_forget_nodes
     """
@@ -834,42 +920,18 @@ def forget_subtree_results(head_node_result: AsyncResult,
     # We can't process the forgetting of one element at a time per iteration because the parent/children relationship
     # might be lost once we forget a node
     #
-    subtree_nodes = set(get_all_children(head_node_result, skip_subtree_nodes=skip_subtree_nodes))
+    subtree_nodes = get_all_children(head_node_result, skip_subtree_nodes)
 
-    do_not_forget_nodes_ids = {get_result_id(n) for n in do_not_forget_nodes} if do_not_forget_nodes else {}
-
-    nodes_to_forget = {n for n in subtree_nodes if n.id not in do_not_forget_nodes_ids}
+    nodes_to_forget = {n for n in subtree_nodes if n.id not in do_not_forget_ids}
 
     msg = [f'Forgetting {len(nodes_to_forget)} results for tree root {get_result_logging_name(head_node_result)}']
     if skip_subtree_nodes:
-        msg += [f'Skipping subtrees: {[get_result_logging_name(r) for r in skip_subtree_nodes]}']
-    if do_not_forget_nodes_ids:
-        msg += [f'Skipping nodes: {[get_result_logging_name(r) for r in do_not_forget_nodes_ids]}']
+        msg += [f'Skipping subtrees: {[ar_id for ar_id in skip_subtree_nodes]}']
+    if do_not_forget_ids:
+        msg += [f'Skipping nodes: {[ar_id for ar_id in do_not_forget_ids]}']
     logger.debug('\n'.join(msg))
 
     for node in nodes_to_forget:
-        forget_single_async_result(node)
-
-
-def forget_chain_results(result: AsyncResult,
-                         forget_chain_head_node_result: bool = True,
-                         do_not_forget_nodes: Optional[Iterable[AsyncResult]] = None,
-                         **kwargs) -> None:
-    """Forget results of the tree rooted at the "chain-head" of result, while skipping subtrees in skip_subtree_nodes,
-    as well as nodes in do_not_forget_nodes.
-
-    If forget_chain_head_node_result is False (default True), do not forget the head of the result chain
-    """
-    _do_not_forget_nodes = set()
-
-    # Get the head of the result chain, i.e., in chain A|B|C, if result is C, find A
-    head_node_result = climb_up_until_null_parent(result)
-
-    if forget_chain_head_node_result is False:
-        _do_not_forget_nodes.add(head_node_result)
-    if do_not_forget_nodes:
-        _do_not_forget_nodes.update(do_not_forget_nodes)
-
-    forget_subtree_results(head_node_result=head_node_result,
-                           do_not_forget_nodes=_do_not_forget_nodes,
-                           **kwargs)
+        logger.debug(f'Forgetting result: {node.log_name}')
+        node._cache = None
+        node.backend.forget(node.id)
