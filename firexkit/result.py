@@ -384,6 +384,7 @@ def wait_on_async_results(results,
         if log_msg:
             logger.debug('-> Waiting for %s to complete' % logging_name)
 
+        result_state = None
         try:
             task_worker_failures = 0
             last_dead_task_worker_check = time.monotonic()
@@ -446,6 +447,9 @@ def wait_on_async_results(results,
 
         except (ChainRevokedException, ChainInterruptedException) as e:
             failures.append(e)
+        finally:
+            if log_msg and max_wait is None and result_state:
+                logger.debug(f'-> Completed waiting for {logging_name} with state {result_state}')
 
     if len(failures) == 1:
         raise failures[0]
