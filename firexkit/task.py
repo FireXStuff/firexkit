@@ -1582,36 +1582,6 @@ def undecorate(task):
         return MethodType(undecorated_func, task)
 
 
-def task_prerequisite(pre_req_task: PromiseProxy, key: str=None, trigger: callable=bool) -> callable:
-    """
-    Register a prerequisite to a microservice.
-        :param pre_req_task: microservice to be invoked if trigger returns False
-        :param key: key in kwargs to pass to the trigger. If None, all kwargs are passed
-        :param trigger: a function returning a bool. When False is returned, then pre_req_task is enqueued
-
-    When adding multiple prerequisites, they must be added in reverse order (i.e. last one to run first)
-    """
-    if not callable(trigger):
-        raise Exception("trigger must be a function returning a bool")
-
-    def decorator(task_needing_pre_req: PromiseProxy)->PromiseProxy:
-        def maybe_run(kwargs):
-            if not key:
-                trigger_arg = kwargs
-            else:
-                trigger_arg = kwargs.get(key)
-            if not trigger(trigger_arg):
-                from celery import current_task
-                current_task.enqueue_child(pre_req_task.s(**kwargs), block=True)
-
-        maybe_run.__name__ = task_needing_pre_req.__name__ + "Needs" + pre_req_task.__name__
-
-        dependencies = ConverterRegister.list_converters(task_name=task_needing_pre_req.__name__, pre_task=True)
-        ConverterRegister.register_for_task(task_needing_pre_req, True, *dependencies)(maybe_run)
-        return task_needing_pre_req
-    return decorator
-
-
 def parse_signature(sig: inspect.Signature) -> (set, dict):
     """Parse the run function of a microservice and return required and optional arguments"""
     required = set()

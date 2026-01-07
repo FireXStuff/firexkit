@@ -1,3 +1,6 @@
+import inspect
+import os
+
 from collections import namedtuple
 from datetime import datetime
 from functools import wraps
@@ -9,11 +12,16 @@ from firexkit.bag_of_goodies import BagOfGoodies
 
 logger = get_task_logger(__name__)
 
+def _get_func_file(func):
+    try:
+        return os.path.realpath(inspect.getfile(func))
+    except TypeError:
+        return None
 
 class ConverterRegister:
     """Converters are a practical mechanism for altering the input values into microservices. They can
     also be used in upfront validation of the inputs."""
-    _ConvertNode = namedtuple('ConvertNode', ['func', 'dependencies'])
+    _ConvertNode = namedtuple('ConvertNode', ['func', 'dependencies', 'file'])
     _task_instances = {}
 
     def __init__(self):
@@ -95,7 +103,7 @@ class ConverterRegister:
                 raise MissingConverterDependencyError(msg)
 
             if converter_node.func.__name__ == precursor:
-                raise CircularDependencyException("A converter can not be dependant on itself")
+                raise CircularDependencyException(f"A converter can not be dependant on itself: {converter_node.file}#{converter_node.func.__name__} ")
 
             if precursor not in self.visit_order and precursor in all_converters:
                 self._visit_converter(all_converters=all_converters,
@@ -154,7 +162,7 @@ class ConverterRegister:
 
         return self._sub_register(func=func, dependencies=dependencies, run_pre_task=run_pre_task)
 
-    def _sub_register(self, func, dependencies: [], run_pre_task):
+    def _sub_register(self, func, dependencies: list[str], run_pre_task):
 
         if run_pre_task is False:
             converters = self._post_converters
@@ -165,7 +173,11 @@ class ConverterRegister:
             # this is the case where decorator is used WITHOUT parenthesis
             # @InputConverter.register
             self._check_not_registered(func, converters)
-            converters[func.__name__] = self._ConvertNode(func=func, dependencies=[])
+            converters[func.__name__] = self._ConvertNode(
+                func=func,
+                dependencies=[],
+                file=_get_func_file(func),
+            )
             return func
 
         # this is the case where decorator is used WITH parenthesis
@@ -174,17 +186,28 @@ class ConverterRegister:
             if not callable(fn):
                 raise ConverterRegistrationException("A converter must be callable")
             self._check_not_registered(fn, converters)
-            converters[fn.__name__] = self._ConvertNode(func=fn, dependencies=dependencies)
+            converters[fn.__name__] = self._ConvertNode(
+                func=fn,
+                dependencies=dependencies,
+                file=_get_func_file(fn),
+            )
             return fn
         return _wrapped_register
 
     @staticmethod
     def _check_not_registered(func, converters):
         if callable(func):
-            func = func.__name__
+            func_name = func.__name__
+        else:
+            func_name = func
 
-        if func in converters:
-            raise NameDuplicationException("Converter %s is already registered. Please define a unique name" % func)
+        existing_conv = converters.get(func_name)
+        if existing_conv:
+            func_file = _get_func_file(func)
+            if func_file != existing_conv.file:
+                raise NameDuplicationException(
+                    f"Converter {func_name} from {func_file} is already registered from {existing_conv.file}. Please define a unique name"
+                )
 
     @classmethod
     def get_register(cls, task_name):
