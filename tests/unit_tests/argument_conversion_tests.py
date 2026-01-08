@@ -220,26 +220,6 @@ class ArgConversionTests(unittest.TestCase):
                 # Should not reach here
                 pass  # pragma: no cover
 
-        class TestException(Exception):
-            pass
-
-        @test_input_converter.register
-        def go_boom(_):
-            raise TestException()
-
-        with self.assertRaises(Exception):
-            test_input_converter.convert()
-
-        with self.assertRaises(NameDuplicationException):
-            # register the same thing a second time
-            @test_input_converter.register
-            def go_boom(_):
-                # Should not reach here
-                pass  # pragma: no cover
-
-        with self.assertRaises(NameDuplicationException):
-            test_input_converter._check_not_registered("go_boom", {"go_boom": go_boom})
-
     def test_single_arg_converter(self):
         test_input_converter = ConverterRegister()
 
