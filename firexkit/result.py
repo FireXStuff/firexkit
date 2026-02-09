@@ -16,6 +16,7 @@ from firexkit.inspect import get_task, get_active_queues, get_active, get_reserv
 from firexkit.revoke import RevokedRequests
 
 RETURN_KEYS_KEY = '__task_return_keys'
+_TASK_PRE_RUN_KEY = 'TASK_PRE_RUN'
 _TASK_POST_RUN_KEY = 'TASK_POST_RUN'
 
 
@@ -96,9 +97,24 @@ def update_task_name(sender, task_id, *_args, **_kwargs):
     handle_broker_timeout(callable_func=callable_func, args=args, timeout=5*60, reraise_on_timeout=False)
 
 
+@task_prerun.connect
+def mark_task_prerun(task, task_id, **_kwargs):
+    task.backend.client.hset(task_id, _TASK_PRE_RUN_KEY, 'True')
+
+
 @task_postrun.connect
 def mark_task_postrun(task, task_id, **_kwargs):
     task.backend.client.hset(task_id, _TASK_POST_RUN_KEY, 'True')
+
+
+def get_task_prerun_info(result):
+    prerun = False
+    try:
+        prerun = get_task_info_from_result(result, key=_TASK_PRE_RUN_KEY)
+    except AttributeError:
+        logger.info(f'Broker doesn\'t support prerun info; probably a dummy broker. Defaulting to prerun=False')
+
+    return prerun
 
 
 def get_task_postrun_info(result):
