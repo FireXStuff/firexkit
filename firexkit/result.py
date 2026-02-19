@@ -1,10 +1,9 @@
-import copy
 import time
 from collections import namedtuple, deque
 import weakref
 
 from pprint import pformat
-from typing import Union, Iterator, Optional, Iterable, Any
+from typing import Union, Iterator, Optional, Iterable
 
 from celery import current_app
 from celery.result import AsyncResult
@@ -493,7 +492,7 @@ def _warn_on_never_callback(callbacks, poll_max_wait):
 
 # This is a generator that returns one AsyncResult as it completes
 def wait_for_any_results(results, max_wait=None, poll_max_wait=0.1, log_msg=False,
-                         callbacks: Iterator[WaitLoopCallBack] = tuple(),
+                         callbacks: Iterable[WaitLoopCallBack] = tuple(),
                          **kwargs):
     if isinstance(results, AsyncResult):
         results = [results]
@@ -706,6 +705,8 @@ def get_results(result: AsyncResult,
 
     from firexkit.task import FireXTask
     if not return_keys or return_keys == FireXTask.DYNAMIC_RETURN or return_keys == (FireXTask.DYNAMIC_RETURN,):
+        from firexkit.bag_of_goodies import AutoInjectRegistry
+        all_results.pop(AutoInjectRegistry.AUTO_IN_REG_ABOG_KEY, None)
         return all_results
     else:
         return results2tuple(all_results, return_keys)

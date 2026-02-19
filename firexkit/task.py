@@ -577,11 +577,6 @@ class FireXTask(Task):
         results: Optional[dict[str, Any]],
         extra_events: Optional[dict]=None,
     ):
-        """
-        Overrideable method to allow subclasses to do something with the
-        BagOfGoodies after the task has been run
-        """
-
         extra_events = extra_events or {}
 
         # No need to expose the RETURN_KEYS_KEY
@@ -688,6 +683,7 @@ class FireXTask(Task):
     def _process_result(self, result, extra_events: Optional[dict] = None):
         # Need to update the dict with the results, if @results was used
         if isinstance(result, dict):
+            result.pop(AutoInjectRegistry.AUTO_IN_REG_ABOG_KEY, None)
             self.context.bog.update(result)
 
         # run any post converters attached to this task
