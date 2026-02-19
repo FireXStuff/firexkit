@@ -864,9 +864,14 @@ class FireXTask(Task):
                 logger.warning(f'{self.short_name} failed and retrying {self.request.retries+1}/{self.max_retries}')
         super(FireXTask, self).retry(*args, **kwargs)
 
+    def get_infra_bag(self) -> MappingProxyType[str, Any]:
+        return MappingProxyType(self.context.bog.return_args)
+
     @property
     def bag(self) -> MappingProxyType[str, Any]:
-        return MappingProxyType(self.context.bog.return_args)
+        infra_bag = dict(self.get_infra_bag())
+        infra_bag.pop(AutoInjectRegistry.AUTO_IN_REG_ABOG_KEY, None)
+        return MappingProxyType(infra_bag)
 
     @property
     def required_args(self) -> list:
@@ -1083,7 +1088,7 @@ class FireXTask(Task):
         if isinstance(chain, InjectArgs):
             return
 
-        _auto_inject_chain_kludge(chain, self.abog)
+        _auto_inject_chain_kludge(chain, self.get_infra_bag())
         verify_chain_arguments(chain)
         child_result = _chain_apply_async(chain)
         if apply_async_epilogue:
