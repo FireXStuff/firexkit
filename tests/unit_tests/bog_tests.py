@@ -52,7 +52,7 @@ class BagTests(unittest.TestCase):
         bog.update({"value": 'yup'})
         self.assertDictEqual(bog.get_bag(),
                              {"value": 'yup'})
-        a, k = bog.split_for_signature()
+        a, k = split_for_signature(bog)
         self.assertEqual(len(a), 1)
         self.assertEqual(a[0], 'yup')
 
@@ -70,7 +70,7 @@ class BagTests(unittest.TestCase):
             bog = BagOfGoodies(sig, args, kwargs, has_returns_from_previous_task=False)
             self.assertDictEqual(bog.get_bag(),
                                  {'some_key': {'k1': 'v1'}})
-            a, k = bog.split_for_signature()
+            a, k = split_for_signature(bog)
             self.assertEqual(len(a), 1)
             self.assertEqual(a[0], {'k1': 'v1'})
 
@@ -83,7 +83,7 @@ class BagTests(unittest.TestCase):
             self.assertDictEqual(bog.get_bag(),
                                  {'some_key': {'k1': 'v1'},
                                   'k2': 'other_value'})
-            a, k = bog.split_for_signature()
+            a, k = split_for_signature(bog)
             self.assertEqual(len(a), 1)
             self.assertEqual(a[0], {'k1': 'v1'})
 
@@ -153,7 +153,7 @@ class BagTests(unittest.TestCase):
         self.assertTrue('missing' in bog.get_bag())
         self.assertEqual(bog.get_bag()['missing'], 'pass')
 
-        a, k = bog.split_for_signature()
+        a, k = split_for_signature(bog)
         ending(*a, **k)
         self.assertTrue(len(k), 2)
         self.assertEqual(k['missing'], 'pass')
@@ -163,7 +163,7 @@ class BagTests(unittest.TestCase):
             self.assertTrue(True)
         sig_v2 = inspect.signature(ending_v2)
         bog_v2 = BagOfGoodies(sig_v2, args, kwargs)
-        a, k = bog_v2.split_for_signature()
+        a, k = split_for_signature(bog_v2)
         ending_v2(*a, **k)
         self.assertTrue(len(k), 16)
 
@@ -186,7 +186,7 @@ class BagTests(unittest.TestCase):
                   "do_not_use": "failure",
                   "arg_four": "success"}
         bog = BagOfGoodies(sig, args, kwargs)
-        a, k = bog.split_for_signature()
+        a, k = split_for_signature(bog)
         fun(*a, **k)
 
     def test_existing_goodies_and_extra(self):
@@ -219,7 +219,7 @@ class BagTests(unittest.TestCase):
         t = Thing()
         sig = inspect.signature(t.a_func)
         bog = BagOfGoodies(sig, args, kwargs)
-        a, k = bog.split_for_signature()
+        a, k = split_for_signature(bog)
         t.a_func(*a, **k)
 
     def test_pop(self):
@@ -293,7 +293,7 @@ class BogTests(unittest.TestCase):
         for sig in [self.sig_func_a, self.sig_func_b, self.sig_func_c, self.sig_func_d, self.sig_func_e]:
             with self.subTest(sig.__str__()):
                 bog = BagOfGoodies(sig, input_args, {})
-                args, kwargs = bog.split_for_signature()
+                args, kwargs = split_for_signature(bog)
                 self.assertDictEqual(kwargs, previous_returns)
                 self.assertListEqual(args, [])
                 self.assertDictEqual(bog.get_bag(), previous_returns)
@@ -306,14 +306,14 @@ class BogTests(unittest.TestCase):
         for sig in [self.sig_func_a, self.sig_func_b]:
             with self.subTest(sig.__str__()):
                 bog = BagOfGoodies(sig, input_args, {})
-                args, kwargs = bog.split_for_signature()
+                args, kwargs = split_for_signature(bog)
                 self.assertDictEqual(kwargs, useful_return)
                 self.assertListEqual(args, [])
                 self.assertDictEqual(bog.return_args, previous_returns)
         for sig in [self.sig_func_c, self.sig_func_d, self.sig_func_e]:
             with self.subTest(sig.__str__()):
                 bog = BagOfGoodies(sig, input_args, {})
-                args, kwargs = bog.split_for_signature()
+                args, kwargs = split_for_signature(bog)
                 self.assertDictEqual(kwargs, previous_returns)
                 self.assertListEqual(args, [])
                 self.assertDictEqual(bog.get_bag(), previous_returns)
@@ -325,7 +325,7 @@ class BogTests(unittest.TestCase):
         for sig in [self.sig_func_a, self.sig_func_b, self.sig_func_d, self.sig_func_e]:
             with self.subTest(sig.__str__()):
                 bog = BagOfGoodies(sig, input_args, {})
-                args, kwargs = bog.split_for_signature()
+                args, kwargs = split_for_signature(bog)
                 self.assertDictEqual(kwargs, {})
                 self.assertListEqual(args, [x_user_overwrite])
                 self.assertDictEqual(bog.get_bag(), {'x': x_user_overwrite})
@@ -337,7 +337,7 @@ class BogTests(unittest.TestCase):
         for sig in [self.sig_func_a, self.sig_func_b, self.sig_func_c, self.sig_func_d, self.sig_func_e]:
             with self.subTest(sig.__str__()):
                 bog = BagOfGoodies(sig, input_args, input_kwargs)
-                args, kwargs = bog.split_for_signature()
+                args, kwargs = split_for_signature(bog)
                 self.assertDictEqual(kwargs, input_kwargs)
                 self.assertListEqual(args, [])
                 self.assertDictEqual(bog.get_bag(), input_kwargs)
@@ -349,7 +349,7 @@ class BogTests(unittest.TestCase):
         for sig in [self.sig_func_a, self.sig_func_b, self.sig_func_d, self.sig_func_e]:
             with self.subTest(sig.__str__()):
                 bog = BagOfGoodies(sig, input_args, {})
-                args, kwargs = bog.split_for_signature()
+                args, kwargs = split_for_signature(bog)
                 self.assertDictEqual(kwargs, {})
                 self.assertListEqual(args, [1])
                 self.assertDictEqual(bog.get_bag(), {'x': 1})
@@ -363,14 +363,14 @@ class BogTests(unittest.TestCase):
         for sig in [self.sig_func_a, self.sig_func_b]:
             with self.subTest(sig.__str__()):
                 bog = BagOfGoodies(sig, input_args, new_inputs)
-                args, kwargs = bog.split_for_signature()
+                args, kwargs = split_for_signature(bog)
                 self.assertDictEqual(kwargs, new_inputs_after_resolving)
                 self.assertListEqual(args, [])
                 self.assertDictEqual(bog.get_bag(), expected_returns)
         for sig in [self.sig_func_c, self.sig_func_d, self.sig_func_e]:
             with self.subTest(sig.__str__()):
                 bog = BagOfGoodies(sig, input_args, new_inputs)
-                args, kwargs = bog.split_for_signature()
+                args, kwargs = split_for_signature(bog)
                 self.assertDictEqual(kwargs, expected_returns)
                 self.assertListEqual(args, [])
                 self.assertDictEqual(bog.get_bag(), expected_returns)
@@ -384,14 +384,14 @@ class BogTests(unittest.TestCase):
         for sig in [self.sig_func_a, self.sig_func_b]:
             with self.subTest(sig.__str__()):
                 bog = BagOfGoodies(sig, input_args, new_inputs)
-                args, kwargs = bog.split_for_signature()
+                args, kwargs = split_for_signature(bog)
                 self.assertDictEqual(kwargs, new_inputs_after_resolving)
                 self.assertListEqual(args, [])
                 self.assertDictEqual(bog.get_bag(), expected_returns)
         for sig in [self.sig_func_c, self.sig_func_d, self.sig_func_e]:
             with self.subTest(sig.__str__()):
                 bog = BagOfGoodies(sig, input_args, new_inputs)
-                args, kwargs = bog.split_for_signature()
+                args, kwargs = split_for_signature(bog)
                 self.assertDictEqual(kwargs, expected_returns)
                 self.assertListEqual(args, [])
                 self.assertDictEqual(bog.get_bag(), expected_returns)
@@ -403,14 +403,14 @@ class BogTests(unittest.TestCase):
         for sig in [self.sig_func_a, self.sig_func_b]:
             with self.subTest(sig.__str__()):
                 bog = BagOfGoodies(sig, input_args, {})
-                args, kwargs = bog.split_for_signature()
+                args, kwargs = split_for_signature(bog)
                 self.assertDictEqual(kwargs, {})
                 self.assertListEqual(args, [2])
                 self.assertDictEqual(bog.get_bag(), expected_returns)
         for sig in [self.sig_func_d, self.sig_func_e]:
             with self.subTest(sig.__str__()):
                 bog = BagOfGoodies(sig, input_args, {})
-                args, kwargs = bog.split_for_signature()
+                args, kwargs = split_for_signature(bog)
                 self.assertDictEqual(kwargs, previous_returns)
                 self.assertListEqual(args, [2])
                 self.assertDictEqual(bog.get_bag(), expected_returns)
@@ -421,7 +421,7 @@ class BogTests(unittest.TestCase):
         for sig in [self.sig_func_a, self.sig_func_b, self.sig_func_d, self.sig_func_e]:
             with self.subTest(sig.__str__()):
                 bog = BagOfGoodies(sig, input_args, {})
-                args, kwargs = bog.split_for_signature()
+                args, kwargs = split_for_signature(bog)
                 self.assertDictEqual(kwargs, {})
                 self.assertListEqual(args, [value])
                 self.assertDictEqual(bog.get_bag(), {'x': value})
@@ -432,14 +432,14 @@ class BogTests(unittest.TestCase):
         for sig in [self.sig_func_a, self.sig_func_b]:
             with self.subTest(sig.__str__()):
                 bog = BagOfGoodies(sig, (), input_kwargs)
-                args, kwargs = bog.split_for_signature()
+                args, kwargs = split_for_signature(bog)
                 self.assertDictEqual(kwargs, used_input)
                 self.assertListEqual(args, [])
                 self.assertDictEqual(bog.get_bag(), input_kwargs)
         for sig in [self.sig_func_c, self.sig_func_d, self.sig_func_e]:
             with self.subTest(sig.__str__()):
                 bog = BagOfGoodies(sig, (), input_kwargs)
-                args, kwargs = bog.split_for_signature()
+                args, kwargs = split_for_signature(bog)
                 self.assertDictEqual(kwargs, input_kwargs)
                 self.assertListEqual(args, [])
                 self.assertDictEqual(bog.get_bag(), input_kwargs)
@@ -450,13 +450,13 @@ class BogTests(unittest.TestCase):
         for sig in [self.sig_func_a, self.sig_func_b, self.sig_func_d, self.sig_func_e]:
             with self.subTest(sig.__str__()):
                 bog = BagOfGoodies(sig, input_args, {})
-                args, kwargs = bog.split_for_signature()
+                args, kwargs = split_for_signature(bog)
                 self.assertDictEqual(kwargs, {})
                 self.assertListEqual(args, [value])
                 self.assertDictEqual(bog.get_bag(), {'x': value})
                 new_value = 2
                 bog.update({'x': new_value})
-                args, kwargs = bog.split_for_signature()
+                args, kwargs = split_for_signature(bog)
                 self.assertListEqual(args, [new_value])
                 self.assertDictEqual(kwargs, {})
                 self.assertDictEqual(bog.get_bag(), {'x': new_value})
@@ -467,13 +467,13 @@ class BogTests(unittest.TestCase):
         for sig in [self.sig_func_f]:
             with self.subTest(sig.__str__()):
                 bog = BagOfGoodies(sig, input_args, {'x': value})
-                args, kwargs = bog.split_for_signature()
+                args, kwargs = split_for_signature(bog)
                 self.assertDictEqual(kwargs, {'x': value})
                 self.assertListEqual(args, [1])
                 self.assertDictEqual(bog.get_bag(), {'args': (1,), 'x': value})
                 new_value = 2
                 bog.update({'x': new_value})
-                args, kwargs = bog.split_for_signature()
+                args, kwargs = split_for_signature(bog)
                 self.assertListEqual(args, [1])
                 self.assertDictEqual(kwargs, {'x': new_value})
                 self.assertDictEqual(bog.get_bag(), {'args': (1,), 'x': new_value})
@@ -492,3 +492,6 @@ class BogTests(unittest.TestCase):
         self.assertEqual(bog.get_bag(), updates)
         self.assertEqual(bog.args, ["converter argument"])
         self.assertEqual(bog.kwargs, {"parameter": "converter parameter"})
+
+def split_for_signature(bag):
+    return bag.args, bag.kwargs

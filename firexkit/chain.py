@@ -1,9 +1,8 @@
 import inspect
 from inspect import signature, getfullargspec
 from functools import wraps
-from typing import Union
 
-from celery.canvas import chain, Signature
+from celery.canvas import Signature
 from celery.local import PromiseProxy
 from celery.result import AsyncResult
 from celery.utils.log import get_task_logger
@@ -95,6 +94,7 @@ def verify_chain_arguments(sig: Signature):
     ref_args = {}
     undefined_indirect = {}
     for task in tasks:
+        # I think task/task_obj is bound/unbound distinction, but it's not clear.
         task_obj = sig.app.tasks[task.task]
         partial_bound = set(signature(task_obj.run).bind_partial(*task.args).arguments.keys())
         kwargs_keys = set(task.kwargs.keys())
@@ -127,7 +127,7 @@ def verify_chain_arguments(sig: Signature):
         # check for validity of reference values (@ arguments) that are consumed by this microservice
         necessary_args = getfullargspec(undecorate(task_obj)).args
         new_ref = {k: v[1:] for k, v in task.kwargs.items() if
-                   hasattr(v, 'startswith') and v.startswith(BagOfGoodies.INDIRECT_ARG_CHAR)}
+                hasattr(v, 'startswith') and v.startswith(BagOfGoodies.INDIRECT_ARG_CHAR)}
         ref_args.update(new_ref)
         for needed in necessary_args:
             if needed in ref_args and ref_args[needed] not in previous:
@@ -142,11 +142,13 @@ def verify_chain_arguments(sig: Signature):
                 service_path = k.split('.')
                 txt += ' ' + arg + '\t: required by "%s" (%s)' % \
                        (service_path[-1], '.'.join(service_path[0:-1]))
-        raise InvalidChainArgsException('Missing mandatory arguments: \n%s' % txt, missing)
+        raise InvalidChainArgsException(f'Missing mandatory arguments: \n{txt}', missing)
+
     if undefined_indirect:
         txt = "\n".join([k + ": " + v for k, v in undefined_indirect.items()])
-        raise InvalidChainArgsException('Chain indirectly references the following unavailable parameters: \n%s' %
-                                        txt, undefined_indirect)
+        raise InvalidChainArgsException(
+            f'Chain indirectly references the following unavailable parameters: \n{txt}',
+            undefined_indirect)
     return True
 
 

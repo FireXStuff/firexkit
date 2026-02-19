@@ -8,10 +8,14 @@ from collections import OrderedDict
 import inspect
 from datetime import datetime
 from functools import partial
-from typing import Callable, Iterable, Optional, Union, Any
+from typing import Callable, Iterable, Optional, Union, Any, Mapping
 from urllib.parse import urljoin
 from copy import deepcopy
 import dataclasses
+import enum
+import typing
+
+import pydantic
 
 from celery.canvas import Signature, _chain
 from celery.result import AsyncResult
@@ -19,13 +23,11 @@ from contextlib import contextmanager
 from enum import Enum
 from logging.handlers import WatchedFileHandler
 from types import MethodType, MappingProxyType
-from abc import abstractmethod
 from celery.app.task import Task
 from celery.local import PromiseProxy
-from celery.signals import task_prerun
 from celery.utils.log import get_task_logger, get_logger
 
-from firexkit.bag_of_goodies import BagOfGoodies
+from firexkit.bag_of_goodies import BagOfGoodies, AutoInjectRegistry, AutoInjectSpec, AutoInject
 from firexkit.argument_conversion import ConverterRegister
 from firexkit.result import get_tasks_names_from_results, wait_for_any_results, \
     RETURN_KEYS_KEY, wait_on_async_results_and_maybe_raise, get_result_logging_name, ChainInterruptedException, \
@@ -45,10 +47,6 @@ REDIS_DB_KEY_PREFIX_FOR_CACHE_ENABLED_UID = 'CACHE_ENABLED'
 
 logger = get_task_logger(__name__)
 
-################################################################
-# Monkey patching
-_orig_chain_apply_async__ = _chain.apply_async
-
 
 @dataclasses.dataclass
 class TaskEnqueueSpec:
@@ -57,18 +55,38 @@ class TaskEnqueueSpec:
     enqueue_opts: Optional[dict[str, Any]] = None
 
 
-def _chain_apply_async(self: _chain, *args: tuple, **kwargs: dict) -> AsyncResult:
-    try:
+def _chain_apply_async(c: Union[_chain, Signature]) -> AsyncResult:
+    if hasattr(c, 'tasks'):
         chain_depth = 0
-        for task in self.tasks:
+        for task in c.tasks:
             task.kwargs['chain_depth'] = chain_depth
             chain_depth += 1
-    except AttributeError:
-        pass
-    return _orig_chain_apply_async__(self, *args, **kwargs)
+
+    # args & kwargs are expected to be set by prior kludges
+    return c.apply_async()
 
 
-_chain.apply_async = _chain_apply_async
+def _auto_inject_chain_kludge(c: Union[_chain, Signature], parent_abog: MappingProxyType[str, Any]):
+    if hasattr(c, 'tasks'):
+        for cel_sig in c.tasks:
+            _update_kwargs_auto_inject(cel_sig, parent_abog)
+    else:
+        _update_kwargs_auto_inject(c, parent_abog)
+
+
+def _update_kwargs_auto_inject(
+    cel_sig: Signature,
+    parent_abog: MappingProxyType[str, Any],
+):
+    if ( auto_inj_reg := AutoInjectRegistry.get_auto_inject_registry(parent_abog | cel_sig.kwargs) ):
+        py_sig = inspect.signature(cel_sig.app.tasks[cel_sig.task].run)
+        auto_inject_kwargs = auto_inj_reg.get_auto_inject_values(
+            py_sig.parameters,
+            bound_param_names=set(py_sig.bind_partial(*cel_sig.args).arguments) | set(cel_sig.kwargs),
+        )
+        if auto_inject_kwargs:
+            logger.debug(f'AutoInject {auto_inject_kwargs.keys()} to kwargs of {cel_sig.name}')
+            cel_sig.kwargs.update(auto_inject_kwargs)
 
 
 class NotInCache(Exception):
@@ -79,12 +97,35 @@ class CacheResultNotPopulatedYetInRedis(NotInCache):
     pass
 
 
-class UidNotInjectedInAbog(Exception):
+def _nop():
     pass
 
 
+def _empty_bog() -> BagOfGoodies:
+    return BagOfGoodies(inspect.signature(_nop), tuple(), {})
+
+
+@dataclasses.dataclass
 class TaskContext:
-    pass
+    flame_configs: dict = dataclasses.field(default_factory=dict)
+    enqueued_children: dict[AsyncResult, dict] = dataclasses.field(default_factory=dict)
+    bog: BagOfGoodies = dataclasses.field(default_factory=_empty_bog)
+
+    _auto_in_reg: Optional[AutoInjectRegistry] = None
+    _pause_tasks: Optional['PauseTasks'] = None
+
+    def auto_inject_reg(self) -> AutoInjectRegistry:
+        if self._auto_in_reg is None:
+            auto_in_reg : Optional[AutoInjectRegistry] = self.bog.return_args.get(AutoInjectRegistry.AUTO_IN_REG_ABOG_KEY)
+            self._auto_in_reg = auto_in_reg or AutoInjectRegistry.empty_auto_inject_reg()
+
+        return self._auto_in_reg
+
+    def pause_tasks(self) -> 'PauseTasks':
+        if self._pause_tasks is None:
+            pause_reqs : Optional[PauseTasks] = self.auto_inject_reg().get(PauseTasks.PAUSE_TASKS_ABOG_KEY)
+            self._pause_tasks = pause_reqs or PauseTasks({}, False)
+        return self._pause_tasks
 
 
 class PendingChildStrategy(Enum):
@@ -196,7 +237,6 @@ def create_flame_config(existing_configs, formatter=_default_flame_formatter, da
                          default=-1) + 1,
             }
 
-
 def flame(flame_key=None, formatter=_default_flame_formatter, data_type='html', bind=False, on_next=False,
           on_next_args=(), decorator_name='flame'):
     def decorator(func):
@@ -213,58 +253,9 @@ def flame(flame_key=None, formatter=_default_flame_formatter, data_type='html', 
 
     return decorator
 
-
 def _set_taskid_in_db_key(result: AsyncResult, db, db_key):
     db.set(db_key, result.id)
     logger.debug(f'Key {db_key} set to {result.id}')
-
-
-class DictWillNotAllowWrites(dict):
-    def __init__(self, _instrumentation_context=None, **kwargs):
-        self.context = _instrumentation_context
-        super().__init__(**kwargs)
-
-    def warn(self):
-        if self.context:
-            try:
-                self.context.send_task_instrumentation_event(abog_written_to=True)
-            except Exception:
-                logger.exception('Could not send instrumentation event')
-        try:
-            raise DeprecationWarning('DEPRECATION NOTICE: self.bog does not allow assignment. '
-                                     'Please use self.abog.copy() to create a copy of the abog that you can write to. '
-                                     'This will become an aborting failure starting January 1, 2023.')
-        except DeprecationWarning as e:
-            logger.exception(e)
-
-    def __setitem__(self, *args, **kwargs):
-        self.warn()
-        super().__setitem__(*args, **kwargs)
-
-    def __delitem__(self, *args, **kwargs):
-        self.warn()
-        super().__delitem__(*args, **kwargs)
-
-    def pop(self, *args, **kwargs):
-        self.warn()
-        return super().pop(*args, **kwargs)
-
-    def popitem(self):
-        self.warn()
-        return super().popitem()
-
-    def clear(self):
-        self.warn()
-        super().clear()
-
-    def setdefault(self, *args, **kwargs):
-        self.warn()
-        return super().setdefault(*args, **kwargs)
-
-    def update(self, *args, **kwargs):
-        self.warn()
-        super().update(*args, **kwargs)
-
 
 def get_cache_enabled_uid_dbkey(cache_key_info: str) -> str:
     return f'{REDIS_DB_KEY_PREFIX_FOR_CACHE_ENABLED_UID}{cache_key_info}'
@@ -320,6 +311,8 @@ class FireXTask(Task):
     """
     DYNAMIC_RETURN = '__DYNAMIC_RETURN__'
     RETURN_KEYS_KEY = RETURN_KEYS_KEY
+    # prevent clients from needing to know about bag_of_goodes module.
+    AutoInject = AutoInject
 
     def __init__(self):
 
@@ -349,6 +342,10 @@ class FireXTask(Task):
         self.code_filepath = self.get_module_file_location()
 
         self._from_plugin = False
+        self.context : TaskContext = TaskContext(
+            bog=BagOfGoodies(self.sig, tuple(), {})
+        )
+        self.name : str
 
     @property
     def root_orig(self):
@@ -390,14 +387,23 @@ class FireXTask(Task):
         return super(FireXTask, new_self).signature(*args, **kwargs)
 
     @contextmanager
-    def task_context(self):
+    def _task_context(self, args: tuple[Any, ...], kwargs: dict[str, Any]):
         try:
-            self.context = TaskContext()
-            self.initialize_context()
+            self.context = self.initialize_context(
+                # Flame configs need to be on self.context b/c they write to flame_data_configs[k]['on_next'] for collapse ops.
+                # Might make more sense to rework that to avoid flame data on context.
+                flame_configs=self._get_task_flame_configs(),
+                bog=BagOfGoodies(
+                    self.sig,
+                    args,
+                    kwargs,
+                    has_returns_from_previous_task=kwargs.get('chain_depth', 0) > 0
+                )
+            )
             yield
         finally:
-            if hasattr(self, 'context'):
-                del self.context
+            # restore empty context to avoid pointless defensive coding.
+            self.context = TaskContext()
 
     @property
     def from_plugin(self):
@@ -424,16 +430,10 @@ class FireXTask(Task):
     def from_plugin(self, value):
         self._from_plugin = value
 
-    def initialize_context(self):
-        self.context.enqueued_children = {}
-        self.context.bog = None
-
-        # Flame configs need to be on self.context b/c they write to flame_data_configs[k]['on_next'] for collapse ops.
-        # Might make more sense to rework that to avoid flame data on context.
-        self.context.flame_configs = (
-            deepcopy(getattr(self.undecorated, "flame_data_configs", {}))
-            # Overwrite @app.task(flame=...) driven-style when present over @flame() annotation style.
-            | self.get_task_flame_configs()
+    def initialize_context(self, flame_configs: dict, bog: BagOfGoodies) -> TaskContext:
+        return TaskContext(
+            flame_configs=flame_configs,
+            bog=bog,
         )
 
     def get_module_file_location(self):
@@ -450,8 +450,9 @@ class FireXTask(Task):
                 task_return_keys = (task_return_keys, )
 
             explicit_keys = [k for k in task_return_keys if not self.is_dynamic_return(k)]
+
             if len(explicit_keys) != len(set(explicit_keys)):
-                raise ReturnsCodingException("Can't have duplicate explicit return keys")
+                raise ReturnsCodingException(f"{self.name} has duplicate explicit return keys")
 
             if not isinstance(task_return_keys, tuple):
                 task_return_keys = tuple(task_return_keys)
@@ -530,18 +531,11 @@ class FireXTask(Task):
         """Maintain a list in the backend of all executed tasks that will generate reports"""
         return add_task_result_with_report_to_db(self.app.backend,  self.request.id)
 
-    @abstractmethod
     def pre_task_run(self, extra_events: Optional[dict] = None):
         """
         Overrideable method to allow subclasses to do something with the
         BagOfGoodies before returning the results
         """
-
-        if extra_events is None:
-            extra_events = {}
-
-        bound_args = self.bound_args
-        default_bound_args = self.default_bound_args
 
         # Send a custom task-started-info event with the args
         if not self.request.called_directly:
@@ -550,68 +544,69 @@ class FireXTask(Task):
                 # to the list in the backend of all executed tasks that  generate reports
                 self.add_task_result_with_report_to_db()
 
-            self.send_event('task-started-info',
-                            firex_bound_args=convert_to_serializable(bound_args),
-                            firex_default_bound_args=convert_to_serializable(default_bound_args),
-                            called_as_orig=self.called_as_orig,
-                            long_name=self.name_without_orig,
-                            log_filepath=self.task_log_url,
-                            from_plugin=self.from_plugin,
-                            code_filepath=self.code_filepath,
-                            retries=self.request.retries,
-                            task_parent_id=self.request.parent_id,
-                            **extra_events)
-            self.send_firex_data(self.abog)
+            self.send_event(
+                'task-started-info',
+                firex_bound_args=convert_to_serializable(self.bound_args),
+                firex_default_bound_args=convert_to_serializable(self.default_bound_args),
+                called_as_orig=self.called_as_orig,
+                long_name=self.name_without_orig,
+                log_filepath=self.task_log_url,
+                from_plugin=self.from_plugin,
+                code_filepath=self.code_filepath,
+                retries=self.request.retries,
+                task_parent_id=self.request.parent_id,
+                **(extra_events or {}),
+            )
+            self.send_flame(self.abog)
 
         # Print the pre-call header
-        self.print_precall_header(bound_args, default_bound_args)
+        self._print_precall_header()
         self._log_soft_time_limit_override_if_applicable()
 
     def _log_soft_time_limit_override_if_applicable(self):
         if not self.request.called_directly:
-            default_soft_time_limit = self.soft_time_limit
-            request_soft_time_limit = self.request_soft_time_limit
-            if default_soft_time_limit != request_soft_time_limit:
+            if self.soft_time_limit != self.request_soft_time_limit:
                 logger.debug(f'This task default soft_time_limit of '
-                             f'{default_soft_time_limit}{"s" if default_soft_time_limit is not None else ""} '
-                             f'was over-ridden to {request_soft_time_limit}s')
-            else:
-                if default_soft_time_limit is not None:
-                    logger.debug(f'This task soft_time_limit is {default_soft_time_limit}s')
+                             f'{self.soft_time_limit}{"s" if self.soft_time_limit is not None else ""} '
+                             f'was over-ridden to {self.request_soft_time_limit}s')
+            elif self.soft_time_limit is not None:
+                logger.debug(f'This task soft_time_limit is {self.soft_time_limit}s')
 
-    @abstractmethod
-    def post_task_run(self, results, extra_events: Optional[dict] = None):
+    def post_task_run(
+        self,
+        results: Optional[dict[str, Any]],
+        extra_events: Optional[dict]=None,
+    ):
         """
         Overrideable method to allow subclasses to do something with the
         BagOfGoodies after the task has been run
         """
 
-        if extra_events is None:
-            extra_events = {}
+        extra_events = extra_events or {}
 
         # No need to expose the RETURN_KEYS_KEY
-        try:
-            del results[RETURN_KEYS_KEY]
-        except (TypeError, KeyError):
-            pass
+        if isinstance(results, dict):
+            results.pop(RETURN_KEYS_KEY, None)
 
         # Print the post-call header
         self.print_postcall_header(results)
 
         # Send a custom task-succeeded event with the results
         if not self.request.called_directly:
-            self.send_event('task-results', firex_result=convert_to_serializable(results), **extra_events)
-            self.send_firex_data(self.abog)
+            self.send_event(
+                'task-results',
+                firex_result=convert_to_serializable(results),
+                **extra_events)
+            self.send_flame(self.abog)
 
-    def print_precall_header(self, bound_args, default_bound_args):
+    def _print_precall_header(self):
         n = 1
         content = ''
         args_list = []
-        for postfix, args in zip(['', ' (default)'], [bound_args, default_bound_args]):
-            if args:
-                for k, v in args.items():
-                    args_list.append('  %d. %s: %r%s' % (n, k, v, postfix))
-                    n += 1
+        for postfix, args in zip(['', ' (default)'], [self.bound_args, self.default_bound_args]):
+            for k, v in (args or {}).items():
+                args_list.append('  %d. %s: %r%s' % (n, k, v, postfix))
+                n += 1
         if args_list:
             content = 'ARGUMENTS\n' + '\n'.join(args_list)
 
@@ -619,8 +614,10 @@ class FireXTask(Task):
         if self.from_plugin:
             task_name += ' (PLUGIN)'
 
-        logger.debug(banner('STARTED: %s' % task_name, content=content, length=100),
-                     extra={'label': self.task_label, 'span_class': 'task_started'})
+        logger.debug(
+            banner(f'STARTED: {task_name}', content=content, length=100),
+            extra={'label': self.task_label, 'span_class': 'task_started'},
+        )
 
     def print_postcall_header(self, result):
         content = ''
@@ -643,12 +640,13 @@ class FireXTask(Task):
         This method should not be overridden since it provides the context (i.e., run state).
         Classes extending FireX should override the _call.
         """
-        with self.task_context():
+        with self._task_context(args, kwargs):
             return self._call(*args, **kwargs)
 
     def _call(self, *args, **kwargs):
         if not self.request.called_directly:
             self.add_task_logfile_handler()
+
         try:
             result = self._process_arguments_and_run(*args, **kwargs)
 
@@ -668,10 +666,8 @@ class FireXTask(Task):
             finally:
                 self.remove_task_logfile_handler()
 
-    def handle_exception(self, e, logging_extra: dict=None, raise_exception=True):
-        extra = {'span_class': 'exception'}
-        if logging_extra:
-            extra.update(logging_extra)
+    def handle_exception(self, e, logging_extra: Optional[dict]=None):
+        extra = {'span_class': 'exception'} | (logging_extra or {})
 
         if isinstance(e, ChainInterruptedException) or isinstance(e, ChainRevokedException):
             try:
@@ -687,8 +683,7 @@ class FireXTask(Task):
         if exception_string:
             mssg += f': {exception_string}'
         logger.error(mssg, exc_info=e, extra=extra)
-        if raise_exception:
-            raise e
+        raise e
 
     def _process_result(self, result, extra_events: Optional[dict] = None):
         # Need to update the dict with the results, if @results was used
@@ -696,7 +691,7 @@ class FireXTask(Task):
             self.context.bog.update(result)
 
         # run any post converters attached to this task
-        converted = ConverterRegister.task_convert(task_name=self.name, pre_task=False, **self.bag.copy())
+        converted = ConverterRegister.task_convert(task_name=self.name, pre_task=False, **self.bag)
         self.context.bog.update(converted)
 
         if isinstance(result, dict):
@@ -713,6 +708,7 @@ class FireXTask(Task):
         if not self._decorated_return_keys and self._task_return_keys:
             # This is only used if the @app.task(returns=) is used
             result = self.convert_returns_to_dict(self._task_return_keys, result)
+
         return result
 
     def _get_cache_key(self):
@@ -743,7 +739,7 @@ class FireXTask(Task):
                 # When the result is not populated, we get a dict back with these two keys
                 break # --< We're done
             else:
-                logger.debug(f'Result not populated yet!')
+                logger.debug('Result not populated yet!')
                 time.sleep(0.1)
                 current_time = time.time()
         else:
@@ -805,11 +801,13 @@ class FireXTask(Task):
                                             extra_events={'cached_result_from': cached_uuid})
 
     def real_call(self):
-        result = super(FireXTask, self).__call__(*self.args, **self.kwargs)
+        result = super(FireXTask, self).__call__(
+            *self.context.bog.args,
+            **self.context.bog.public_kwargs())
         converted_result = self.convert_results_if_returns_defined_by_task_definition(result)
         return self._process_result(converted_result)
 
-    def final_call(self, *args, **kwargs):
+    def final_call(self):
         if self.is_cache_enabled():
             return self.cache_call()
         else:
@@ -817,19 +815,48 @@ class FireXTask(Task):
 
     def _process_arguments_and_run(self, *args, **kwargs):
         # Organise the input args by creating a BagOfGoodies
-        self.context.bog = BagOfGoodies(self.sig,
-                                        args,
-                                        kwargs,
-                                        has_returns_from_previous_task=kwargs.get('chain_depth', 0) > 0)
+        self.context.bog = BagOfGoodies(
+            self.sig,
+            args,
+            kwargs,
+            has_returns_from_previous_task=kwargs.get('chain_depth', 0) > 0
+        )
 
         # run any "pre" converters attached to this task
-        converted = ConverterRegister.task_convert(task_name=self.name, pre_task=True, **self.bag.copy())
+        converted = ConverterRegister.task_convert(task_name=self.name, pre_task=True, **self.bag)
         self.context.bog.update(converted)
+
+        if not self.request.called_directly:
+            self._pause_if_point_requested(_PausePoints.PAUSE_BEFORE)
+            _set_task_start_time(self)
 
         # give sub-classes a chance to do something with the args
         self.pre_task_run()
+        try:
+            return self.final_call()
+        except ChainInterruptedException:
+            self._pause_if_point_requested(_PausePoints.PAUSE_ON_FAILURE)
+            raise
+        finally:
+            self._pause_if_point_requested(_PausePoints.PAUSE_AFTER)
 
-        return self.final_call(*self.args, **self.kwargs)
+    def _pause_if_point_requested(self, p: '_PausePoints') -> Optional['_TaskPauseRequest']:
+        pause_req = self.context.pause_tasks().pause_point_requested(self.short_name, p)
+        if pause_req:
+            pause_task_name = self.app.conf.get("pause_task") or 'firexapp.tasks.core_tasks.Pause'
+            pause_task = self.app.tasks[pause_task_name]
+            self.enqueue_child(
+                pause_task.s(
+                    **(
+                        dict(
+                            pause_hours=pause_req.pause_hours,
+                            send_pause_email_notification=self.context.pause_tasks().send_pause_email_notification,
+                        ) | self.abog
+                    )
+                ),
+                block=True,
+                raise_exception_on_failure=False,
+            )
 
     def retry(self, *args, **kwargs):
         # Adds some logging to the original task retry
@@ -842,8 +869,8 @@ class FireXTask(Task):
         super(FireXTask, self).retry(*args, **kwargs)
 
     @property
-    def bag(self) -> MappingProxyType:
-        return MappingProxyType(self.context.bog.get_bag())
+    def bag(self) -> MappingProxyType[str, Any]:
+        return MappingProxyType(self.context.bog.return_args)
 
     @property
     def required_args(self) -> list:
@@ -859,7 +886,7 @@ class FireXTask(Task):
         """
         :return: dict of optional arguments to the microservice, and their values.
         """
-        if self._in_required is None:
+        if self._in_required is None or self._in_optional is None:
             self._in_required, self._in_optional = parse_signature(self.sig)
         return dict(self._in_optional)
 
@@ -882,50 +909,46 @@ class FireXTask(Task):
         return default_bound_args
 
     @property
-    def args(self) -> list:
+    def args(self) -> tuple[Any, ...]:
         return self.context.bog.args
 
     @property
-    def kwargs(self) -> dict:
+    def kwargs(self) -> dict[str, Any]:
         return self.context.bog.kwargs
 
     @property
-    def bound_args(self) -> dict:
-        return self._get_bound_args(self.sig, self.args, self.kwargs)
+    def bound_args(self) -> dict[str, Any]:
+        # bound args and kwargs, not just args as the name implies.
+        return self._get_bound_args(self.sig, self.args, self.context.bog.public_kwargs())
 
     @property
-    def default_bound_args(self) -> dict:
+    def default_bound_args(self) -> dict[str, Any]:
         return self._get_default_bound_args(self.sig, self.bound_args)
 
-    def map_input_args_kwargs(self, *args, **kwargs) -> ((), {}):
-        b = BagOfGoodies(self.sig,
-                         *args,
-                         **kwargs,
-                         has_returns_from_previous_task=kwargs.get('chain_depth', 0) > 0)
-        return b.args, b.kwargs
-
     def map_args(self, *args, **kwargs) -> dict:
-        args, kwargs = self.map_input_args_kwargs(args, kwargs)
-        bound_args = self._get_bound_args(self.sig, args, kwargs)
-        default_bound_args = self._get_default_bound_args(self.sig, bound_args)
-        return {**bound_args, **default_bound_args}
+        b = BagOfGoodies(self.sig, args, kwargs)
+        bound_args = self.sig.bind(*b.args, **b.public_kwargs())
+        bound_args.apply_defaults()
+        return bound_args.arguments
 
     @property
     def all_args(self) -> MappingProxyType:
-        return MappingProxyType({**self.bound_args, **self.default_bound_args})
+        return MappingProxyType(self.bound_args | self.default_bound_args)
 
     @property
-    def abog(self) -> DictWillNotAllowWrites:
-        return DictWillNotAllowWrites(_instrumentation_context=self, **{**self.bag, **self.default_bound_args})
+    def abog(self) -> MappingProxyType[str, Any]:
+        # TODO: actually change to MappingProxyType? DictWillNotAllowWrites was in place for years.
+        return self.bag | self.default_bound_args
+
+    def _get_auto_injected_arg(self, arg_name: str):
+        return self.abog.get(arg_name) or self.context.auto_inject_reg().get(arg_name)
 
     @property
     def uid(self):
-        try:
-            return self.abog['uid']
-        except KeyError:
-            raise UidNotInjectedInAbog('Please ensure you either inject uid explicitly, '
-                                       'or use either self.enqueue_child, self.enqueue_child_and_get_results, '
-                                       'or self.enqueue_in_parallel')
+        # services should always declare "uid: AutoInject[Uid]" as an arg to automatically receive
+        # a Uid, but since we have this legacy mechanism, use auto_inject_reg
+        # to always supply the Uid
+        return self._get_auto_injected_arg('uid')
 
     #######################
     # Enqueuing child tasks
@@ -935,7 +958,7 @@ class FireXTask(Task):
     _UNBLOCKED = 'unblocked'
 
     @property
-    def enqueued_children(self):
+    def enqueued_children(self) -> list[AsyncResult]:
         return list(self.context.enqueued_children.keys())
 
     @property
@@ -947,15 +970,15 @@ class FireXTask(Task):
     def nonready_enqueued_children(self):
         return [child for child in self.context.enqueued_children if not child.ready()]
 
-    def _add_enqueued_child(self, child_result):
+    def _add_enqueued_child(self, child_result: AsyncResult):
         if child_result not in self.context.enqueued_children:
             self.context.enqueued_children[child_result] = {}
 
-    def _remove_enqueued_child(self, child_result):
+    def _remove_enqueued_child(self, child_result: AsyncResult):
         if child_result in self.context.enqueued_children:
             del(self.context.enqueued_children[child_result])
 
-    def _update_child_state(self, child_result, state):
+    def _update_child_state(self, child_result: AsyncResult, state: str):
         if child_result not in self.context.enqueued_children:
             self._add_enqueued_child(child_result)
         self.context.enqueued_children[child_result][self._STATE_KEY] = state
@@ -1041,12 +1064,16 @@ class FireXTask(Task):
                 if forget:
                     self.forget_specific_children_results(child_results)
 
-    def enqueue_child(self, chain: Signature, add_to_enqueued_children: bool = True, block: bool = False,
-                      raise_exception_on_failure: bool = None,
-                      apply_async_epilogue: Callable[[AsyncResult], None] = None, apply_async_options=None,
-                      forget: bool = False,
-                      inject_uid: bool = False,
-                      **kwargs) -> Optional[AsyncResult]:
+    def enqueue_child(
+        self,
+        chain: Signature,
+        add_to_enqueued_children: bool=True,
+        block: bool=False,
+        raise_exception_on_failure: Optional[bool]=None,
+        apply_async_epilogue: Optional[Callable[[AsyncResult], None]]=None,
+        forget: bool=False,
+        **kwargs,
+    ) -> Optional[AsyncResult]:
         """Schedule a child task to run"""
 
         if raise_exception_on_failure is not None:
@@ -1055,20 +1082,14 @@ class FireXTask(Task):
             # Only set it if not None, otherwise we want to leave the downstream default
             kwargs['raise_exception_on_failure'] = raise_exception_on_failure
 
-        if apply_async_options is None:
-            apply_async_options = dict()
-
         from firexkit.chain import InjectArgs, verify_chain_arguments
 
         if isinstance(chain, InjectArgs):
             return
 
-        # Inject uid whenever possible
-        if inject_uid:
-            chain = InjectArgs(uid=self.uid) | chain
-
+        _auto_inject_chain_kludge(chain, self.abog)
         verify_chain_arguments(chain)
-        child_result = chain.apply_async(**apply_async_options)
+        child_result = _chain_apply_async(chain)
         if apply_async_epilogue:
             apply_async_epilogue(child_result)
         if add_to_enqueued_children:
@@ -1202,7 +1223,7 @@ class FireXTask(Task):
 
         return results
 
-    def enqueue_child_once(self, *args, enqueue_once_key, block=False, **kwargs):
+    def enqueue_child_once(self, *args, enqueue_once_key, block=False, **kwargs) -> AsyncResult:
         """See  :`meth:`enqueue_child_once_and_extract`
         """
 
@@ -1226,7 +1247,7 @@ class FireXTask(Task):
             return self.enqueue_child(*args,
                                       block=block,
                                       apply_async_epilogue=apply_async_epilogue,
-                                      **kwargs)  # <-- Done!
+                                      **kwargs)
 
         # Someone else is running this; wait for uuid to be set in the backend
         logger.info(f'Skipping enqueue of task with enqueue-once key {enqueue_once_key}; '
@@ -1260,7 +1281,7 @@ class FireXTask(Task):
     def enqueue_child_once_and_extract(self,
                                        *args,
                                        enqueue_once_key: str,
-                                       **kwargs) -> [tuple, dict]:
+                                       **kwargs):
         """Apply a ``chain`` with a unique key only once per FireX run, and extract results from it.
 
         Note:
@@ -1338,12 +1359,8 @@ class FireXTask(Task):
         return revoked_results
 
     @property
-    def root_logger(self):
-        return logger.root
-
-    @property
     def root_logger_file_handler(self):
-        return [handler for handler in self.root_logger.handlers if isinstance(handler, WatchedFileHandler)][0]
+        return [handler for handler in logger.root.handlers if isinstance(handler, WatchedFileHandler)][0]
 
     @property
     def worker_log_file(self):
@@ -1438,10 +1455,10 @@ class FireXTask(Task):
             self.write_task_log_html_header()
 
         self._temp_loghandlers = {}
-        fh_root = logging.handlers.WatchedFileHandler(task_logfile, mode='a+')
+        fh_root = WatchedFileHandler(task_logfile, mode='a+')
         fh_root.setFormatter(self.root_logger_file_handler.formatter)
-        self.root_logger.addHandler(fh_root)
-        self._temp_loghandlers[self.root_logger] = fh_root
+        logger.root.addHandler(fh_root)
+        self._temp_loghandlers[logger.root] = fh_root
 
         task_logger = get_logger('celery.task')
         fh_task = logging.FileHandler(task_logfile, mode='a+')
@@ -1466,7 +1483,9 @@ class FireXTask(Task):
     def start_time(self) -> float:
         return get_task_start_time(self.request.id, self.backend)
 
-    def get_task_flame_configs(self) -> OrderedDict:
+    def _get_task_flame_configs(self) -> dict:
+        decorator_flame_configs = deepcopy(getattr(self.undecorated, "flame_data_configs", {}))
+
         flame_value = get_attr_unwrapped(self, 'flame', None)
         task_flame_config = OrderedDict()
         if flame_value:
@@ -1485,9 +1504,9 @@ class FireXTask(Task):
             elif isinstance(flame_value, dict):
                 task_flame_config = OrderedDict(flame_value)
 
-        return task_flame_config
+        return decorator_flame_configs | task_flame_config
 
-    def send_firex_data(self, data):
+    def send_flame(self, data: Mapping[str, Any]):
         if self.request.called_directly:
             return
 
@@ -1535,9 +1554,6 @@ class FireXTask(Task):
     def send_firex_event_raw(self, data):
         self.send_event('task-send-flame', **data)
 
-    def update_firex_data(self, **kwargs):
-        self.send_firex_data(kwargs)
-
     def send_firex_html(self, **kwargs):
         formatted_data = {flame_key: {'value': html_data,
                                       'type': 'html',
@@ -1545,7 +1561,7 @@ class FireXTask(Task):
                           for flame_key, html_data in kwargs.items()}
         self.send_firex_event_raw({'flame_data': formatted_data})
 
-    def send_display_collapse(self, task_uuid: str = None):
+    def send_display_collapse(self, task_uuid: Optional[str]=None):
         """
             Collapse the current task (default), or collapse the task with the supplied UUID.
         """
@@ -1561,6 +1577,22 @@ class FireXTask(Task):
                 'order': time.time()}
         }
         self.send_firex_event_raw({'flame_data': formatted_data})
+
+    def init_auto_inject_registry(self, auto_inject_args: list[AutoInjectSpec]):
+        # expected to only be called by the root task.
+        assert AutoInjectRegistry.AUTO_IN_REG_ABOG_KEY not in self.abog, 'AutoInjectRegistry already initialized'
+
+        # auto inject pause args, if any.
+        pauses = PauseTasks.create_from_abog(self.abog)
+        if pauses.pause_tasks_by_name:
+            auto_inject_args = auto_inject_args + [ AutoInjectSpec(PauseTasks, PauseTasks.PAUSE_TASKS_ABOG_KEY, pauses) ]
+
+        # return_args is "the one". It's an input, not a result, apparently.
+        self.context.bog.return_args[AutoInjectRegistry.AUTO_IN_REG_ABOG_KEY] = AutoInjectRegistry.create_auto_in_reg(
+            auto_inject_args)
+
+    def _update_auto_inject_arg(self, arg_name: str, val: Any):
+        self.context.auto_inject_reg().update_auto_inject_arg(arg_name, val)
 
 
 def undecorate_func(func):
@@ -1582,7 +1614,7 @@ def undecorate(task):
         return MethodType(undecorated_func, task)
 
 
-def parse_signature(sig: inspect.Signature) -> (set, dict):
+def parse_signature(sig: inspect.Signature) -> tuple[set[str], dict[str, Any]]:
     """Parse the run function of a microservice and return required and optional arguments"""
     required = set()
     optional = {}
@@ -1597,7 +1629,7 @@ def parse_signature(sig: inspect.Signature) -> (set, dict):
     return required, optional
 
 
-def get_attr_unwrapped(fun: callable, attr_name, *default_value):
+def get_attr_unwrapped(fun: Callable, attr_name, *default_value):
     """
     Unwraps a function and returns an attribute of the root function
     """
@@ -1635,15 +1667,13 @@ def _custom_serializers(obj) -> Optional[str]:
 
     return None
 
-import pydantic
-
 
 def convert_to_serializable(obj, max_recursive_depth=10, _depth=0):
 
     if obj is None or isinstance(obj, (int, float, str, bool)):
         return obj
 
-    if hasattr(obj, 'firex_serializable'):
+    if hasattr(obj, 'firex_serializable') and not isinstance(obj, type):
         return obj.firex_serializable()
 
     if isinstance(obj, datetime):
@@ -1709,8 +1739,109 @@ def get_time_from_task_start(task_id, backend):
     return None
 
 
-@task_prerun.connect
-def statsd_task_prerun(sender, task, task_id, args, kwargs, **donotcare):
-    starttime_dbkey = get_starttime_dbkey(task_id)
-    if not sender.backend.get(starttime_dbkey):
-        sender.backend.set(starttime_dbkey, time.time())
+def _set_task_start_time(task: FireXTask):
+    starttime_dbkey = get_starttime_dbkey(task.request.id)
+    if not task.backend.get(starttime_dbkey):
+        task.backend.set(starttime_dbkey, time.time())
+
+
+class _PausePoints(str, enum.Enum):
+    PAUSE_BEFORE = 'PAUSE_BEFORE'
+    PAUSE_AFTER = 'PAUSE_AFTER'
+    PAUSE_ON_FAILURE = 'PAUSE_ON_FAILURE'
+
+
+@dataclasses.dataclass
+class _TaskPauseRequest:
+    task_name: str
+    pause_point: _PausePoints
+    pause_hours: float
+
+def _listy(val: Any) -> list[str]:
+    if isinstance(val, str):
+        l = [e.strip() for e in val.split(',') if e.strip()]
+    elif isinstance(val, list):
+        l = [str(e) for e in val]
+    else:
+        l = [str(val)]
+    return l
+
+DEFAULT_PAUSE = 4
+
+@dataclasses.dataclass
+class PauseTasks:
+
+    pause_tasks_by_name: dict[str, list[_TaskPauseRequest]]
+    send_pause_email_notification: bool
+
+    PAUSE_TASKS_ABOG_KEY: typing.ClassVar[str] = 'pause_tasks_reqs'
+
+    @staticmethod
+    def get_cli_opts() -> list[dict]:
+        return [
+            dict(
+                task_abog_key='pause_on',
+                pause_point=_PausePoints.PAUSE_BEFORE,
+                hours_abog_key='pause_on_hours',
+            ),
+            dict(
+                task_abog_key='pause_before',
+                pause_point=_PausePoints.PAUSE_BEFORE,
+                hours_abog_key='pause_before_hours',
+            ),
+            dict(
+                task_abog_key='pause_after',
+                pause_point=_PausePoints.PAUSE_AFTER,
+                hours_abog_key='pause_after_hours',
+            ),
+            dict(
+                task_abog_key='pause_on_failure',
+                pause_point=_PausePoints.PAUSE_ON_FAILURE,
+                hours_abog_key='pause_after_hours',
+            ),
+        ]
+
+    @staticmethod
+    def get_pause_arg_names() -> list[str]:
+        args = []
+        for o in PauseTasks.get_cli_opts():
+            args.append(o['task_abog_key'])
+            args.append(o['hours_abog_key'])
+        return args
+
+    @staticmethod
+    def create_from_abog(abog: typing.Mapping[str, typing.Any]) -> 'PauseTasks':
+        pause_tasks_by_name: dict[str, list[_TaskPauseRequest]] = {}
+        for pause_point_opt in PauseTasks.get_cli_opts():
+            if (pause_task_val := abog.get(pause_point_opt['task_abog_key'])):
+                task_names : list[str] = _listy(pause_task_val)
+                pause_duration = float(
+                    abog.get(pause_point_opt['hours_abog_key'])
+                    or abog.get('pause_duration')
+                    or DEFAULT_PAUSE
+                )
+                for task_name in task_names:
+                    if task_name not in pause_tasks_by_name:
+                        pause_tasks_by_name[task_name] = []
+                    pause_tasks_by_name[task_name].append(
+                        _TaskPauseRequest(
+                            task_name,
+                            pause_point_opt['pause_point'],
+                            pause_duration,
+                        )
+                    )
+
+        if pause_tasks_by_name:
+            logger.debug(f'Found pause requests: {pause_tasks_by_name}')
+
+        return PauseTasks(
+            pause_tasks_by_name=pause_tasks_by_name,
+            send_pause_email_notification=bool(abog.get('send_pause_email_notification', True))
+        )
+
+    def pause_point_requested(self, task_name: str, point: _PausePoints) -> typing.Optional[_TaskPauseRequest]:
+        if ( pause_specs := self.pause_tasks_by_name.get(task_name) ):
+            return next(
+                (ps for ps in pause_specs if ps.pause_point == point),
+                None)
+        return None
