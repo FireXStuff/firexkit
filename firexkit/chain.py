@@ -1,6 +1,7 @@
 import inspect
 from inspect import signature, getfullargspec
 from functools import wraps
+from typing import Optional
 
 from celery.canvas import Signature
 from celery.local import PromiseProxy
@@ -158,13 +159,15 @@ class InvalidChainArgsException(Exception):
         self.wrong_args = wrong_args if wrong_args else {}
 
 
-def _enqueue(self: Signature,
-             block: bool = False,
-             raise_exception_on_failure: bool = True,
-             caller_task: Signature = None,
-             queue: str = None,
-             priority: int = None,
-             soft_time_limit: int = None) -> AsyncResult:
+def _enqueue(
+    self: Signature,
+    block: bool = False,
+    raise_exception_on_failure: bool = True,
+    caller_task: Optional[Signature]=None,
+    queue: Optional[str]=None,
+    priority: Optional[int]=None,
+    soft_time_limit: Optional[int]=None,
+) -> AsyncResult:
 
     verify_chain_arguments(self)
 

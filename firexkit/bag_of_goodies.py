@@ -86,7 +86,7 @@ class BagOfGoodies:
         if ( auto_in_reg := AutoInjectRegistry.get_auto_inject_registry(kwargs) ):
             # make auto_inject registry available to child tasks,
             # make future auto-injected args use explicit values if present.
-            auto_in_reg.update_auto_inject_args( kwargs | bound_pos_args )
+            auto_in_reg.update_auto_inject_args( mutated_kwargs | bound_pos_args )
             # see if this task needs any args auto-injected.
             auto_in_kwargs = auto_in_reg.get_auto_inject_values(
                 sig.parameters,
@@ -272,7 +272,7 @@ class AutoInjectRegistry:
                 and (auto_in_arg := self._get_spec_by_name_and_instance(arg_name, arg_val) )
             ):
                 if auto_in_arg.value != arg_val:
-                    logger.info(f'Overwriting auto-inject arg {auto_in_arg} with abog value.')
+                    logger.info(f'Overwriting auto-inject arg {arg_name} with abog value: {arg_val}')
                     auto_in_arg.value = arg_val
 
     def _get_spec_by_name_and_instance(self, arg_name: str, val: typing.Any) -> typing.Optional[AutoInjectSpec]:

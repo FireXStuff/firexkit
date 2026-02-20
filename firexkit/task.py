@@ -85,9 +85,7 @@ def _update_kwargs_auto_inject(
             py_sig.parameters,
             bound_param_names=set(py_sig.bind_partial(*cel_sig.args).arguments) | set(cel_sig.kwargs),
         )
-        if auto_inject_kwargs:
-            logger.debug(f'AutoInject {auto_inject_kwargs.keys()} to kwargs of {cel_sig.name}')
-            cel_sig.kwargs.update(auto_inject_kwargs)
+        cel_sig.kwargs.update(auto_inject_kwargs)
 
 
 class NotInCache(Exception):
@@ -825,7 +823,6 @@ class FireXTask(Task):
         if not self.request.called_directly:
             self._pause_if_point_requested(_PausePoints.PAUSE_BEFORE)
 
-
         # give sub-classes a chance to do something with the args
         self.pre_task_run()
         try:
@@ -836,7 +833,7 @@ class FireXTask(Task):
         finally:
             self._pause_if_point_requested(_PausePoints.PAUSE_AFTER)
 
-    def _pause_if_point_requested(self, p: '_PausePoints') -> Optional['_TaskPauseRequest']:
+    def _pause_if_point_requested(self, p: '_PausePoints'):
         pause_req = self.context.pause_tasks().pause_point_requested(self.short_name, p)
         if pause_req:
             pause_task_name = self.app.conf.get("pause_task") or 'firexapp.tasks.core_tasks.Pause'
@@ -846,6 +843,7 @@ class FireXTask(Task):
                     **(
                         dict(
                             pause_hours=pause_req.pause_hours,
+                            pause_point=pause_req.pause_point,
                             send_pause_email_notification=self.context.pause_tasks().send_pause_email_notification,
                         ) | self.abog
                     )
