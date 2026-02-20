@@ -92,8 +92,7 @@ class BagOfGoodies:
                 sig.parameters,
                 bound_param_names=set(bound_pos_args) | set(mutated_kwargs),
             )
-            if auto_in_kwargs:
-                mutated_kwargs.update(auto_in_kwargs)
+            mutated_kwargs.update(auto_in_kwargs)
 
         self.args = tuple(args)
         self.kwargs = mutated_kwargs
@@ -262,6 +261,11 @@ class AutoInjectRegistry:
         return None
 
     def update_auto_inject_args(self, pos_and_kw_args: dict[str, Any]):
+        """
+            Update the value in the auto-inject registry so that the nearest ancestor's
+            value of an auto-injected arg is used instead of the default or a farther ancestor's
+            value.
+        """
         for arg_name, arg_val in pos_and_kw_args.items():
             if (
                 arg_name in self._specs_by_name_and_type
@@ -271,20 +275,10 @@ class AutoInjectRegistry:
                     logger.info(f'Overwriting auto-inject arg {auto_in_arg} with abog value.')
                     auto_in_arg.value = arg_val
 
-
-    def update_auto_inject_arg(self, arg_name: str, arg_value: typing.Any):
-        if spec := self._get_spec_by_name_and_instance(arg_name, arg_value):
-            spec.value = arg_value
-
     def _get_spec_by_name_and_instance(self, arg_name: str, val: typing.Any) -> typing.Optional[AutoInjectSpec]:
-        if arg_name not in self._specs_by_name_and_type:
-            logger.error(f'AutoInjectRegistry not statically initialized for {arg_name}')
-        else:
-            for t, spec in self._specs_by_name_and_type[arg_name].items():
-                if isinstance(val, t):
-                    return spec
-
-            logger.error(f'AutoInjectRegistry not statically initialized for {arg_name}/[{type(val)}]')
+        for t, spec in self._specs_by_name_and_type[arg_name].items():
+            if isinstance(val, t):
+                return spec
         return None
 
     def _get_spec_by_name_and_type(self, arg_name: str, _type: Type) -> typing.Optional[AutoInjectSpec]:
@@ -302,10 +296,7 @@ class AutoInjectRegistry:
         # TODO: could validate bound AutoInject values adhere to AutoInject's type.
         bound_param_names: set[str],
     ) -> dict[str, typing.Any]:
-        auto_inject_kwargs = {
-            # propagate this reg via kwargs, always. Makes the reg & injected args always available.
-            self.AUTO_IN_REG_ABOG_KEY: self,
-        }
+        auto_inject_kwargs = {}
         possible_auto_injectable_params = {
             k: p
             for k, p in parameters.items()
@@ -339,5 +330,8 @@ class AutoInjectRegistry:
             else:
                 raise Exception(
                     f'AutoInject arg {auto_inject_name} has no inner type. The "Foo" in AutoInject[Foo] is required.')
-
-        return auto_inject_kwargs
+        if auto_inject_kwargs:
+            logger.debug(f'Auto-Injecting args: {", ".join(auto_inject_kwargs)}')
+        return auto_inject_kwargs | {
+            self.AUTO_IN_REG_ABOG_KEY: self, # propagate the registry
+        }

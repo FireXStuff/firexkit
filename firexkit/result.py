@@ -3,7 +3,7 @@ from collections import namedtuple, deque
 import weakref
 
 from pprint import pformat
-from typing import Union, Iterator, Optional, Iterable
+from typing import Union, Iterator, Optional, Iterable, Any
 
 from celery import current_app
 from celery.result import AsyncResult
@@ -27,7 +27,7 @@ ResultId = Union[AsyncResult, str]
 logger = get_task_logger(__name__)
 
 
-def get_task_info_from_result(result, key: str = None):
+def get_task_info_from_result(result, key: Optional[str]=None):
     try:
         backend = result.app.backend
     except AttributeError:
@@ -677,7 +677,7 @@ def get_results(result: AsyncResult,
         If `return_keys` parameter was specified, returns a tuple of the results in the same order of the return_keys.
         If `return_keys` parameter wasn't specified, return a dictionary of the key/value pairs of the returned results.
     """
-    all_results = {}
+    all_results : dict[str, Any] = {}
 
     chain_members = [result]
     if extract_from_parents:
@@ -704,9 +704,9 @@ def get_results(result: AsyncResult,
                      merge_children_results=merge_children_results)
 
     from firexkit.task import FireXTask
+    from firexkit.bag_of_goodies import AutoInjectRegistry
+    all_results.pop(AutoInjectRegistry.AUTO_IN_REG_ABOG_KEY, None)
     if not return_keys or return_keys == FireXTask.DYNAMIC_RETURN or return_keys == (FireXTask.DYNAMIC_RETURN,):
-        from firexkit.bag_of_goodies import AutoInjectRegistry
-        all_results.pop(AutoInjectRegistry.AUTO_IN_REG_ABOG_KEY, None)
         return all_results
     else:
         return results2tuple(all_results, return_keys)

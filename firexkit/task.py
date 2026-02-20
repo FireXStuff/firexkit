@@ -26,6 +26,7 @@ from types import MethodType, MappingProxyType
 from celery.app.task import Task
 from celery.local import PromiseProxy
 from celery.utils.log import get_task_logger, get_logger
+import celery.signals
 
 from firexkit.bag_of_goodies import BagOfGoodies, AutoInjectRegistry, AutoInjectSpec, AutoInject
 from firexkit.argument_conversion import ConverterRegister
@@ -694,7 +695,6 @@ class FireXTask(Task):
             # update the results with changes from converters
             result = {k: v for k, v in self.bag.items() if k in result}
 
-        # give sub-classes a chance to do something with the results
         self.post_task_run(result, extra_events=extra_events)
 
         return self.bag.copy()
@@ -824,7 +824,7 @@ class FireXTask(Task):
 
         if not self.request.called_directly:
             self._pause_if_point_requested(_PausePoints.PAUSE_BEFORE)
-            _set_task_start_time(self)
+
 
         # give sub-classes a chance to do something with the args
         self.pre_task_run()
@@ -853,6 +853,7 @@ class FireXTask(Task):
                 block=True,
                 raise_exception_on_failure=False,
             )
+            _set_task_start_time(self, force=True)
 
     def retry(self, *args, **kwargs):
         # Adds some logging to the original task retry
@@ -1592,9 +1593,6 @@ class FireXTask(Task):
         self.context.bog.return_args[AutoInjectRegistry.AUTO_IN_REG_ABOG_KEY] = AutoInjectRegistry.create_auto_in_reg(
             auto_inject_args)
 
-    def _update_auto_inject_arg(self, arg_name: str, val: Any):
-        self.context.auto_inject_reg().update_auto_inject_arg(arg_name, val)
-
 
 def undecorate_func(func):
     undecorated_func = func
@@ -1680,6 +1678,9 @@ def convert_to_serializable(obj, max_recursive_depth=10, _depth=0):
     if isinstance(obj, datetime):
         obj = obj.isoformat()
 
+    if isinstance(obj, type) and issubclass(obj, enum.Enum):
+        return obj.__name__
+
     if isinstance(obj, pydantic.BaseModel):
         return obj.model_dump(mode='json')
     elif dataclasses.is_dataclass(obj):
@@ -1695,10 +1696,13 @@ def convert_to_serializable(obj, max_recursive_depth=10, _depth=0):
     if _depth < max_recursive_depth:
         # Full object isn't jsonable, but some contents might be. Try walking the structure to get jsonable parts.
         if isinstance(obj, dict):
-            return {
-                convert_to_serializable(k, max_recursive_depth, _depth+1): convert_to_serializable(v, max_recursive_depth, _depth+1)
-                for k, v in obj.items()
-            }
+            jsonable_dict = {}
+            for k, v in obj.items():
+                serializable_key = convert_to_serializable(k, max_recursive_depth, _depth+1)
+                if isinstance(serializable_key, list):
+                    serializable_key = json.dumps(serializable_key)
+                jsonable_dict[serializable_key] = convert_to_serializable(v, max_recursive_depth, _depth+1)
+            return jsonable_dict
 
         # Note that it's important this DOES NOT catch strings, and it won't since strings are jsonable.
         if isinstance(obj, Iterable):
@@ -1724,6 +1728,11 @@ def get_starttime_dbkey(task_id):
     return task_id + '_starttime'
 
 
+@celery.signals.task_prerun.connect
+def statsd_task_prerun(sender, task, **donotcare):
+    _set_task_start_time(task)
+
+
 def get_task_start_time(task_id, backend) -> Optional[float]:
     starttime_dbkey = get_starttime_dbkey(task_id)
     try:
@@ -1740,7 +1749,7 @@ def get_time_from_task_start(task_id, backend):
     return None
 
 
-def _set_task_start_time(task: FireXTask):
+def _set_task_start_time(task: FireXTask, force=False):
     starttime_dbkey = get_starttime_dbkey(task.request.id)
     if not task.backend.get(starttime_dbkey):
         task.backend.set(starttime_dbkey, time.time())
