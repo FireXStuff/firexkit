@@ -1805,7 +1805,7 @@ class PauseTasks:
             dict(
                 task_abog_key='pause_on_failure',
                 pause_point=_PausePoints.PAUSE_ON_FAILURE,
-                hours_abog_key='pause_after_hours',
+                hours_abog_key='pause_on_failure_hours',
             ),
         ]
 
