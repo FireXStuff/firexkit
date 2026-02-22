@@ -827,7 +827,7 @@ class FireXTask(Task):
         self.pre_task_run()
         try:
             return self.final_call()
-        except ChainInterruptedException:
+        except Exception:
             self._pause_if_point_requested(_PausePoints.PAUSE_ON_FAILURE)
             raise
         finally:
