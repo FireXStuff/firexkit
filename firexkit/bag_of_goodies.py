@@ -28,42 +28,67 @@ class BagOfGoodies:
         # Check if the method signature contains any VAR_KEYWORD (i.e., **kwargs)
         self.varkeyword = any(p.kind == p.VAR_KEYWORD for p in sig.parameters.values())
 
-        add_later = {}
+        non_input_returns : dict[str, Any] = {}
         try:
             # If the first positional argument is a
             # dict (i.e., result of a previous task), we need to process it.
             if isinstance(args[0], dict) and has_returns_from_previous_task:
-                original_args = args[0]
-                # Remove the RETURN_KEYS_KEY entry
-                if RETURN_KEYS_KEY in original_args:
-                    del original_args[RETURN_KEYS_KEY]
-                # Partially bind the remaining arguments
-                ba = sig.bind_partial(*args[1:]).arguments
-                for k, v in original_args.items():
-                    # Add k,v pairs from the dictionary that are not in the
-                    # partially bound args
-                    if k not in ba:
+                prev_task_result: dict[str, Any] = args[0]
+                # Remove the RETURN_KEYS_KEY entry since results are in prev_task_result
+                prev_task_result.pop(RETURN_KEYS_KEY, None)
+                # get remaining argument names
+                bound_arg_names = set(sig.bind_partial(*args[1:]).arguments.keys())
+                for pt_result_name, pr_result_val in prev_task_result.items():
+                    is_prev_task_auto_reg = pt_result_name == AutoInjectRegistry.AUTO_IN_REG_ABOG_KEY
+                    # Add previous task results to cur args only if they're not already bound
+                    if pt_result_name not in bound_arg_names:
                         # But only if the keys exist in the arguments of the
                         # method signature, or if a varkeyword(e.g. **kwargs)
                         # appeared in the signature
-                        if k in sig.parameters or self.varkeyword:
+                        prev_result_accepted_by_sig = bool(
+                            pt_result_name in sig.parameters
+                            or ( self.varkeyword and not is_prev_task_auto_reg)
+                        )
+                        if prev_result_accepted_by_sig:
                             # if x='@x', and x was present in the original args, we must use it
                             indirect_to_self = (
-                                k in mutated_kwargs
-                                and self._is_indirect(mutated_kwargs[k])
-                                and self._get_indirect_key(mutated_kwargs[k]) == k
+                                pt_result_name in mutated_kwargs
+                                and self._is_indirect(mutated_kwargs[pt_result_name])
+                                and self._get_indirect_key(mutated_kwargs[pt_result_name]) == pt_result_name
                             )
-                            if k not in mutated_kwargs or indirect_to_self:
-                                mutated_kwargs[k] = v
+                            if (
+                                pt_result_name not in mutated_kwargs
+                                or indirect_to_self
+                            ):
+                                mutated_kwargs[pt_result_name] = pr_result_val
                         else:
-                            # Otherwise, we still need to add this parameter
-                            # later, after the method is called
-                            add_later[k] = v
+                            # Otherwise add to result
+                            non_input_returns[pt_result_name] = pr_result_val
+                    elif is_prev_task_auto_reg and pr_result_val:
+                        non_input_returns[AutoInjectRegistry.AUTO_IN_REG_ABOG_KEY] = pr_result_val
                 # Remove the dict from the positional arguments
                 args = args[1:]
         except IndexError:
             pass
 
+        bound_pos_args : dict[str, Any] = sig.bind_partial(*args).arguments
+
+        if ( auto_in_reg := AutoInjectRegistry.get_auto_inject_registry(non_input_returns, kwargs) ):
+            # make future auto-injected args use explicit values if present.
+            auto_in_reg.update_auto_inject_args( mutated_kwargs | bound_pos_args )
+            # see if this task needs any args auto-injected.
+            auto_in_kwargs = auto_in_reg.get_auto_inject_values(
+                sig.parameters,
+                bound_param_names=set(bound_pos_args) | set(mutated_kwargs),
+            )
+            mutated_kwargs.update(auto_in_kwargs)
+            mutated_kwargs.pop(AutoInjectRegistry.AUTO_IN_REG_ABOG_KEY, None)
+            if AutoInjectRegistry.AUTO_IN_REG_ABOG_KEY not in non_input_returns:
+                non_input_returns[AutoInjectRegistry.AUTO_IN_REG_ABOG_KEY] = auto_in_reg
+            else:
+                pass # already there from prev crazy result handling above :/
+
+        # remove keys from kwargs that are bound by the positional args
         remove_from_kwargs = {}
         if not self.varkeyword:
             remove_from_kwargs = {
@@ -73,31 +98,19 @@ class BagOfGoodies:
 
         # Pass in the kwargs that don't appear in the original app signature
         # to be later
-        add_later.update(remove_from_kwargs)
+        non_input_returns.update(remove_from_kwargs)
+
         # and remove them from the kwargs
         for k in remove_from_kwargs.keys():
             del mutated_kwargs[k]
 
-        # remove keys from kwargs that are bound by the positional args
-        bound_pos_args : dict[str, Any] = sig.bind_partial(*args).arguments
         for k in bound_pos_args.keys():
             mutated_kwargs.pop(k, None)
-
-        if ( auto_in_reg := AutoInjectRegistry.get_auto_inject_registry(kwargs) ):
-            # make auto_inject registry available to child tasks,
-            # make future auto-injected args use explicit values if present.
-            auto_in_reg.update_auto_inject_args( mutated_kwargs | bound_pos_args )
-            # see if this task needs any args auto-injected.
-            auto_in_kwargs = auto_in_reg.get_auto_inject_values(
-                sig.parameters,
-                bound_param_names=set(bound_pos_args) | set(mutated_kwargs),
-            )
-            mutated_kwargs.update(auto_in_kwargs)
 
         self.args = tuple(args)
         self.kwargs = mutated_kwargs
 
-        self.return_args = dict(self.kwargs) | bound_pos_args | add_later
+        self.return_args = self.kwargs | bound_pos_args | non_input_returns
         self._apply_indirect()
 
     def resolve_circular_indirect_references(self, sig: Signature, args: tuple,
@@ -163,21 +176,27 @@ class BagOfGoodies:
         arguments = self.sig.bind_partial(*self.args).arguments
         ind_args = {k: self._get_indirect_key(v) for k, v in arguments.items() if self._is_indirect(v)}
 
-        defaults = [v for v in self.sig.parameters.values() if v.default]
-        defaults = [v for v in defaults if v.name not in self.kwargs]
-        defaults = [v for v in defaults if v.name not in arguments]
-        ind_defaults = {v.name: self._get_indirect_key(v.default) for v in defaults if self._is_indirect(v.default)}
+        indirect_defaults = {
+            param.name: self._get_indirect_key(param.default)
+            for param in self.sig.parameters.values()
+            if (
+                param.default is not self.sig.empty
+                and param.name not in self.kwargs
+                and param.name not in arguments
+                and self._is_indirect(param.default)
+            )
+        }
 
         ind_kargs = {k: self._get_indirect_key(v) for k, v in self.kwargs.items() if self._is_indirect(v)}
 
-        all_to_update = ind_defaults | ind_kargs | ind_args
+        all_to_update = indirect_defaults | ind_kargs | ind_args
         updates = {
             k: self.return_args[i_key]
             for k, i_key in all_to_update.items()
             if i_key in self.return_args}
 
         # default keys needs to be in kwargs to allow the update
-        for k in ind_defaults:
+        for k in indirect_defaults:
             if k not in self.kwargs:
                 self.kwargs[k] = ""
         self._update(updates)
@@ -227,8 +246,15 @@ class AutoInjectRegistry:
     EMPTY : typing.ClassVar[typing.Optional['AutoInjectRegistry']] = None
 
     @classmethod
-    def get_auto_inject_registry(cls, args: dict[str, Any]) -> typing.Optional['AutoInjectRegistry']:
-        return args.get(cls.AUTO_IN_REG_ABOG_KEY)
+    def get_auto_inject_registry(
+        cls,
+        primary_args: dict[str, Any],
+        secondary_args: dict[str, Any],
+    ) -> typing.Optional['AutoInjectRegistry']:
+        return (
+            primary_args.get(cls.AUTO_IN_REG_ABOG_KEY)
+            or secondary_args.get(cls.AUTO_IN_REG_ABOG_KEY)
+        )
 
     @classmethod
     def empty_auto_inject_reg(cls) -> 'AutoInjectRegistry':
@@ -252,6 +278,9 @@ class AutoInjectRegistry:
                 raise ValueError(f'Duplicate specs for {s.arg_name}[{s.arg_type}]')
 
         return AutoInjectRegistry(specs_by_name_and_type)
+
+    def get_auto_injectable_arg_names(self) -> set[str]:
+        return set(self._specs_by_name_and_type)
 
     def get(self, name: str) -> Any:
         if name in self._specs_by_name_and_type:
@@ -332,6 +361,14 @@ class AutoInjectRegistry:
                     f'AutoInject arg {auto_inject_name} has no inner type. The "Foo" in AutoInject[Foo] is required.')
         if auto_inject_kwargs:
             logger.debug(f'Auto-Injecting args: {", ".join(auto_inject_kwargs)}')
+        return auto_inject_kwargs
+
+    def get_auto_inject_values_and_reg(
+        self,
+        parameters: typing.Mapping[str, Parameter],
+        bound_param_names: set[str],
+    ) -> dict[str, typing.Any]:
+        auto_inject_kwargs = self.get_auto_inject_values(parameters, bound_param_names)
         return auto_inject_kwargs | {
             self.AUTO_IN_REG_ABOG_KEY: self, # propagate the registry
         }

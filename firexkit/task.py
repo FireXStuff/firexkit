@@ -79,13 +79,12 @@ def _update_kwargs_auto_inject(
     cel_sig: Signature,
     parent_abog: MappingProxyType[str, Any],
 ):
-    if ( auto_inj_reg := AutoInjectRegistry.get_auto_inject_registry(parent_abog | cel_sig.kwargs) ):
-        py_sig = inspect.signature(cel_sig.app.tasks[cel_sig.task].run)
-        auto_inject_kwargs = auto_inj_reg.get_auto_inject_values(
-            py_sig.parameters,
-            bound_param_names=set(py_sig.bind_partial(*cel_sig.args).arguments) | set(cel_sig.kwargs),
-        )
-        cel_sig.kwargs.update(auto_inject_kwargs)
+    if ( auto_inj_reg := AutoInjectRegistry.get_auto_inject_registry(cel_sig.kwargs, parent_abog) ):
+        # sucks this logic needs to be duplicated so many places,
+        # but bog doesn't exist during validation :/
+        # add auto_reg here so verify_chain_arguments has it to know args _will_ be supplied.
+        # FIXME: This stuff is nuts, 3 different parts ofthe code need to be in sync.
+        cel_sig.kwargs[AutoInjectRegistry.AUTO_IN_REG_ABOG_KEY] = auto_inj_reg
 
 
 class NotInCache(Exception):
@@ -341,9 +340,7 @@ class FireXTask(Task):
         self.code_filepath = self.get_module_file_location()
 
         self._from_plugin = False
-        self.context : TaskContext = TaskContext(
-            bog=BagOfGoodies(self.sig, tuple(), {})
-        )
+        self.context : TaskContext = TaskContext()
         self.name : str
 
     @property
@@ -392,6 +389,7 @@ class FireXTask(Task):
                 # Flame configs need to be on self.context b/c they write to flame_data_configs[k]['on_next'] for collapse ops.
                 # Might make more sense to rework that to avoid flame data on context.
                 flame_configs=self._get_task_flame_configs(),
+                # Organise the input args by creating a BagOfGoodies
                 bog=BagOfGoodies(
                     self.sig,
                     args,
@@ -686,7 +684,7 @@ class FireXTask(Task):
             self.context.bog.update(result)
 
         # run any post converters attached to this task
-        converted = ConverterRegister.task_convert(task_name=self.name, pre_task=False, **self.bag)
+        converted = ConverterRegister.task_convert(self.name, pre_task=False, **self.bag)
         self.context.bog.update(converted)
 
         if isinstance(result, dict):
@@ -808,7 +806,7 @@ class FireXTask(Task):
             return self.real_call()
 
     def _process_arguments_and_run(self, *args, **kwargs):
-        # Organise the input args by creating a BagOfGoodies
+
         self.context.bog = BagOfGoodies(
             self.sig,
             args,

@@ -9,7 +9,7 @@ from celery.result import AsyncResult
 from celery.utils.log import get_task_logger
 
 from firexkit.result import wait_on_async_results_and_maybe_raise
-from firexkit.bag_of_goodies import BagOfGoodies
+from firexkit.bag_of_goodies import BagOfGoodies, AutoInjectRegistry
 from firexkit.task import parse_signature, FireXTask, undecorate, ReturnsCodingException, get_attr_unwrapped
 
 logger = get_task_logger(__name__)
@@ -105,7 +105,11 @@ def verify_chain_arguments(sig: Signature):
         else:
             required_args, _ = parse_signature(inspect.signature(task_obj.run))
 
-        missing_params = set(required_args) - (partial_bound | kwargs_keys | previous)
+        if ( auto_in_reg := AutoInjectRegistry.get_auto_inject_registry(task.kwargs, {}) ):
+            auto_in_keys = auto_in_reg.get_auto_injectable_arg_names()
+        else:
+            auto_in_keys = set()
+        missing_params = set(required_args) - (partial_bound | kwargs_keys | previous | auto_in_keys)
         if missing_params:
             missing[task_obj.name] = missing_params
 

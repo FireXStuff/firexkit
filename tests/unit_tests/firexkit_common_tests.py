@@ -25,10 +25,8 @@ class HtmlTemplateTests(unittest.TestCase):
         url = 'http://some.com/path'
         text = 'content<b> with markup</b>'
         link = get_link(url, text=text)
-        print(link)
 
         parser = SimpleHtmlParser(link)
-        print(parser.start_tag_attrs)
         self.assertEqual(parser.data, text)
         self.assertEqual(parser.start_tag_attrs['href'], url)
 
