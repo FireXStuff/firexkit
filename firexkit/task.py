@@ -534,7 +534,8 @@ class FireXTask(Task):
         BagOfGoodies before returning the results
         """
 
-        # Send a custom task-started-info event with the args
+        # Send a custom task-started-info event with essential meta-data
+        # and a task-args event with the args
         if not self.request.called_directly:
             if self.has_report_meta():
                 # If the task generates a report, append the task id
@@ -543,8 +544,6 @@ class FireXTask(Task):
 
             self.send_event(
                 'task-started-info',
-                firex_bound_args=convert_to_serializable(self.bound_args),
-                firex_default_bound_args=convert_to_serializable(self.default_bound_args),
                 called_as_orig=self.called_as_orig,
                 long_name=self.name_without_orig,
                 log_filepath=self.task_log_url,
@@ -553,6 +552,12 @@ class FireXTask(Task):
                 retries=self.request.retries,
                 task_parent_id=self.request.parent_id,
                 **(extra_events or {}),
+            )
+            
+            self.send_event(
+                'task-args',
+                firex_bound_args=convert_to_serializable(self.bound_args),
+                firex_default_bound_args=convert_to_serializable(self.default_bound_args),
             )
             self.send_flame(self.abog)
 
