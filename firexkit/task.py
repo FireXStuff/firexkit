@@ -8,16 +8,16 @@ from collections import OrderedDict
 import inspect
 from datetime import datetime
 from functools import partial
-from typing import Callable, Iterable, Optional, Union, Any, Mapping
+from typing import Callable, Iterable, Optional, Union, Any, Mapping, Sequence
 from urllib.parse import urljoin
 from copy import deepcopy
 import dataclasses
 import enum
 import typing
+import time
 
 import pydantic
 
-from celery.canvas import Signature, _chain
 from celery.result import AsyncResult
 from contextlib import contextmanager
 from enum import Enum
@@ -30,14 +30,18 @@ import celery.signals
 
 from firexkit.bag_of_goodies import BagOfGoodies, AutoInjectRegistry, AutoInjectSpec, AutoInject
 from firexkit.argument_conversion import ConverterRegister
-from firexkit.result import get_tasks_names_from_results, wait_for_any_results, \
-    RETURN_KEYS_KEY, wait_on_async_results_and_maybe_raise, get_result_logging_name, ChainInterruptedException, \
-    ChainRevokedException, last_causing_chain_interrupted_exception, \
-    wait_for_running_tasks_from_results, WaitOnChainTimeoutError, get_results, \
-    get_task_name_from_result, first_non_chain_interrupted_exception, forget_chain_results
+from firexkit.result import (
+    get_tasks_names_from_results, wait_for_any_results,
+    wait_on_async_results_and_maybe_raise, get_result_logging_name, ChainInterruptedException,
+    ChainRevokedException, last_causing_chain_interrupted_exception,
+    wait_for_running_tasks_from_results, WaitOnChainTimeoutError, get_results,
+    get_task_name_from_result, first_non_chain_interrupted_exception, forget_chain_results,
+    DYNAMIC_RETURN, ReturnsCodingException, FireXResults
+)
 from firexkit.resources import get_firex_css_filepath, get_firex_logo_filepath
 from firexkit.firexkit_common import JINJA_ENV
-import time
+from firexkit.chain import InjectArgs, SignatureX
+
 
 REPLACEMENT_TASK_NAME_POSTFIX = '_orig'
 
@@ -51,40 +55,10 @@ logger = get_task_logger(__name__)
 
 @dataclasses.dataclass
 class TaskEnqueueSpec:
-    signature: Signature
+    signature: SignatureX
     inject_abog: bool = True
     enqueue_opts: Optional[dict[str, Any]] = None
 
-
-def _chain_apply_async(c: Union[_chain, Signature]) -> AsyncResult:
-    if hasattr(c, 'tasks'):
-        chain_depth = 0
-        for task in c.tasks:
-            task.kwargs['chain_depth'] = chain_depth
-            chain_depth += 1
-
-    # args & kwargs are expected to be set by prior kludges
-    return c.apply_async()
-
-
-def _auto_inject_chain_kludge(c: Union[_chain, Signature], parent_abog: MappingProxyType[str, Any]):
-    if hasattr(c, 'tasks'):
-        for cel_sig in c.tasks:
-            _update_kwargs_auto_inject(cel_sig, parent_abog)
-    else:
-        _update_kwargs_auto_inject(c, parent_abog)
-
-
-def _update_kwargs_auto_inject(
-    cel_sig: Signature,
-    parent_abog: MappingProxyType[str, Any],
-):
-    if ( auto_inj_reg := AutoInjectRegistry.get_auto_inject_registry(cel_sig.kwargs, parent_abog) ):
-        # sucks this logic needs to be duplicated so many places,
-        # but bog doesn't exist during validation :/
-        # add auto_reg here so verify_chain_arguments has it to know args _will_ be supplied.
-        # FIXME: This stuff is nuts, 3 different parts ofthe code need to be in sync.
-        cel_sig.kwargs[AutoInjectRegistry.AUTO_IN_REG_ABOG_KEY] = auto_inj_reg
 
 
 class NotInCache(Exception):
@@ -105,6 +79,7 @@ def _empty_bog() -> BagOfGoodies:
 
 @dataclasses.dataclass
 class TaskContext:
+    bog: BagOfGoodies
     flame_configs: dict = dataclasses.field(default_factory=dict)
     enqueued_children: dict[AsyncResult, dict] = dataclasses.field(default_factory=dict)
     bog: BagOfGoodies = dataclasses.field(default_factory=_empty_bog)
@@ -114,15 +89,15 @@ class TaskContext:
 
     def auto_inject_reg(self) -> AutoInjectRegistry:
         if self._auto_in_reg is None:
-            auto_in_reg : Optional[AutoInjectRegistry] = self.bog.return_args.get(AutoInjectRegistry.AUTO_IN_REG_ABOG_KEY)
-            self._auto_in_reg = auto_in_reg or AutoInjectRegistry.empty_auto_inject_reg()
-
+            self._auto_in_reg = self.bog.get_auto_inject_registry()
         return self._auto_in_reg
 
     def pause_tasks(self) -> 'PauseTasks':
         if self._pause_tasks is None:
-            pause_reqs : Optional[PauseTasks] = self.auto_inject_reg().get(PauseTasks.PAUSE_TASKS_ABOG_KEY)
-            self._pause_tasks = pause_reqs or PauseTasks({}, False)
+            self._pause_tasks : PauseTasks = self.auto_inject_reg().get(
+                PauseTasks.PAUSE_TASKS_ABOG_KEY,
+                PauseTasks({}, False),
+            )
         return self._pause_tasks
 
 
@@ -136,13 +111,6 @@ class PendingChildStrategy(Enum):
     Revoke = 1
     Continue = 2
 
-
-class ReturnsCodingException(Exception):
-    pass
-
-
-class DyanmicReturnsNotADict(Exception):
-    pass
 
 
 class IllegalTaskNameException(Exception):
@@ -307,8 +275,8 @@ class FireXTask(Task):
     """
     Task object that facilitates passing of arguments and return values from one task to another, to be used in chains
     """
-    DYNAMIC_RETURN = '__DYNAMIC_RETURN__'
-    RETURN_KEYS_KEY = RETURN_KEYS_KEY
+    DYNAMIC_RETURN = DYNAMIC_RETURN
+
     # prevent clients from needing to know about bag_of_goodes module.
     AutoInject = AutoInject
 
@@ -320,18 +288,19 @@ class FireXTask(Task):
 
         self.undecorated = undecorate(self)
         self.sig = inspect.signature(self.run)
-        self._task_return_keys = self.get_task_return_keys()
-        self._decorated_return_keys = getattr(self.undecorated, "_decorated_return_keys", tuple())
-        if self._decorated_return_keys and self._task_return_keys:
+
+        _task_return_keys = self._get_task_return_keys()
+        _decorated_return_keys = getattr(self.undecorated, "_decorated_return_keys", None)
+        if _decorated_return_keys and _task_return_keys:
             raise ReturnsCodingException(f"You can't specify both a @returns decorator and a returns in the app task for {self.name}")
-        self.return_keys = self._decorated_return_keys or self._task_return_keys
+        self._return_keys : Optional[tuple[str, ...]] = _decorated_return_keys or _task_return_keys
 
         self._lagging_children_strategy = get_attr_unwrapped(self, 'pending_child_strategy', PendingChildStrategy.Block)
 
         super(FireXTask, self).__init__()
 
-        self._in_required = None
-        self._in_optional = None
+        self._in_required : Optional[set[str]] = None
+        self._in_optional : Optional[dict[str, Any]] = None
 
         self._logs_dir_for_worker = None
         self._file_logging_dir_path = None
@@ -340,17 +309,30 @@ class FireXTask(Task):
         self.code_filepath = self.get_module_file_location()
 
         self._from_plugin = False
-        self.context : TaskContext = TaskContext()
+        self.context : TaskContext = TaskContext(BagOfGoodies(self.sig, tuple(), {}))
         self.name : str
 
     @property
-    def root_orig(self):
+    def return_keys(self) -> tuple[str, ...]:
+        return self._return_keys or tuple()
+
+    def get_overridden_task(self) -> 'FireXTask':
+        if not self.is_overriding_task():
+            raise TypeError(f'{self.name} does not override a task')
+        assert self.orig
+        return self.orig
+
+    @property
+    def root_orig(self) -> 'FireXTask':
         """Return the very original `Task` that this `Task` had overridden.
         If this task has been overridden multiple times, this will return the very first/original task.
         Return `self` if the task was not overridden"""
-        if hasattr(self, "orig"):
-            return self.orig.root_orig
+        if ( orig_task := getattr(self, "orig", None) ):
+            return orig_task.root_orig
         return self
+
+    def is_overriding_task(self) -> bool:
+        return self.root_orig != self
 
     def apply_async(self, *args, **kwargs):
         original_name = self.name
@@ -390,17 +372,12 @@ class FireXTask(Task):
                 # Might make more sense to rework that to avoid flame data on context.
                 flame_configs=self._get_task_flame_configs(),
                 # Organise the input args by creating a BagOfGoodies
-                bog=BagOfGoodies(
-                    self.sig,
-                    args,
-                    kwargs,
-                    has_returns_from_previous_task=kwargs.get('chain_depth', 0) > 0
-                )
+                bog=BagOfGoodies(self.sig, args, kwargs)
             )
             yield
         finally:
             # restore empty context to avoid pointless defensive coding.
-            self.context = TaskContext()
+            self.context = TaskContext(BagOfGoodies(self.sig, tuple(), {}))
 
     @property
     def from_plugin(self):
@@ -437,55 +414,23 @@ class FireXTask(Task):
         return sys.modules[self.__module__].__file__
 
     @classmethod
-    def is_dynamic_return(cls, value):
+    def is_dynamic_return(cls, value: str) -> bool:
         return hasattr(value, 'startswith') and value.startswith(cls.DYNAMIC_RETURN)
 
-    def get_task_return_keys(self) -> tuple:
-        task_return_keys = get_attr_unwrapped(self, 'returns', tuple())
-        if task_return_keys:
+    def _get_task_return_keys(self) -> Optional[tuple[str, ...]]:
+        task_return_keys = get_attr_unwrapped(self, 'returns', None)
+        if task_return_keys is not None:
             if isinstance(task_return_keys, str):
                 task_return_keys = (task_return_keys, )
 
             explicit_keys = [k for k in task_return_keys if not self.is_dynamic_return(k)]
-
             if len(explicit_keys) != len(set(explicit_keys)):
                 raise ReturnsCodingException(f"{self.name} has duplicate explicit return keys")
 
             if not isinstance(task_return_keys, tuple):
                 task_return_keys = tuple(task_return_keys)
+
         return task_return_keys
-
-    @classmethod
-    def convert_returns_to_dict(cls, return_keys, result) -> dict:
-        if type(result) != tuple and isinstance(result, tuple):
-            # handle named tuples, they are a result, not all the results
-            result = (result,)
-        if not isinstance(result, tuple):
-            # handle case of singular result
-            result = (result, )
-
-        if len(return_keys) != len(result):
-            raise ReturnsCodingException('Expected %s keys in @returns' % len(return_keys))
-
-        # time to process the multiple return values
-        flat_results = OrderedDict()
-        for k, v in zip(return_keys, result):
-            if k == cls.DYNAMIC_RETURN:
-                if not v:
-                    continue
-                if not isinstance(v, dict):
-                    raise DyanmicReturnsNotADict('The value of the dynamic returns %s must be a dictionary.'
-                                                 'Current return value %r is of type %s' % (k, v, type(v).__name__))
-                flat_results.update(v)
-            else:
-                flat_results[k] = v
-        result = flat_results
-        _return_keys = list(result.keys())
-
-        # Inject into the results the RETURN_KEYS
-        if _return_keys:
-            result[cls.RETURN_KEYS_KEY] = tuple(_return_keys)
-        return result
 
     def run(self, *args, **kwargs):
         """The body of the task executed by workers."""
@@ -569,28 +514,6 @@ class FireXTask(Task):
             elif self.soft_time_limit is not None:
                 logger.debug(f'This task soft_time_limit is {self.soft_time_limit}s')
 
-    def post_task_run(
-        self,
-        results: Optional[dict[str, Any]],
-        extra_events: Optional[dict]=None,
-    ):
-        extra_events = extra_events or {}
-
-        # No need to expose the RETURN_KEYS_KEY
-        if isinstance(results, dict):
-            results.pop(RETURN_KEYS_KEY, None)
-
-        # Print the post-call header
-        self.print_postcall_header(results)
-
-        # Send a custom task-succeeded event with the results
-        if not self.request.called_directly:
-            self.send_event(
-                'task-results',
-                firex_result=convert_to_serializable(results),
-                **extra_events)
-            self.send_flame(self.abog)
-
     def _print_precall_header(self):
         n = 1
         content = ''
@@ -627,7 +550,7 @@ class FireXTask(Task):
         logger.debug(banner('COMPLETED: %s' % self.name, ch='*', content=content, length=100),
                      extra={'span_class': 'task_completed'})
 
-    def __call__(self, *args, **kwargs):
+    def __call__(self, *args, **kwargs) -> dict[str, Any]:
         """
         This method should not be overridden since it provides the context (i.e., run state).
         Classes extending FireX should override the _call.
@@ -635,12 +558,12 @@ class FireXTask(Task):
         with self._task_context(args, kwargs):
             return self._call(*args, **kwargs)
 
-    def _call(self, *args, **kwargs):
+    def _call(self, *args, **kwargs) -> dict[str, Any]:
         if not self.request.called_directly:
             self.add_task_logfile_handler()
 
         try:
-            result = self._process_arguments_and_run(*args, **kwargs)
+            converted_result = self._process_arguments_and_run(*args, **kwargs)
 
             if self._lagging_children_strategy is PendingChildStrategy.Block:
                 try:
@@ -648,7 +571,7 @@ class FireXTask(Task):
                 except Exception as e:
                     logger.debug("The following exception was thrown (and caught) when wait_for_children was "
                                  "implicitly called by this task's base class:\n" + str(e))
-            return result
+            return converted_result
         except Exception as e:
             self.handle_exception(e)
         finally:
@@ -677,31 +600,43 @@ class FireXTask(Task):
         logger.error(mssg, exc_info=e, extra=extra)
         raise e
 
-    def _process_result(self, result, extra_events: Optional[dict] = None):
-        # Need to update the dict with the results, if @results was used
-        if isinstance(result, dict):
-            result.pop(AutoInjectRegistry.AUTO_IN_REG_ABOG_KEY, None)
-            self.context.bog.update(result)
+    def _process_result(
+        self,
+        result: dict[str, Any],
+        extra_events: Optional[dict]=None,
+    ) -> dict[str, Any]:
+
+        post_run_return_args = self.context.bog.get_supplied_infra_and_defaulted_args() | result
 
         # run any post converters attached to this task
-        converted = ConverterRegister.task_convert(self.name, pre_task=False, **self.bag)
-        self.context.bog.update(converted)
+        converted_return_args = ConverterRegister.task_convert(
+            self.name,
+            pre_task=False,
+            **BagOfGoodies.resolve_indirect(post_run_return_args)
+        )
+        indirect_resolved_converted_return_args = BagOfGoodies.resolve_indirect(converted_return_args)
 
-        if isinstance(result, dict):
-            # update the results with changes from converters
-            result = {k: v for k, v in self.bag.items() if k in result}
+        converted_task_results = {
+            k: v for k, v in indirect_resolved_converted_return_args.items()
+            if (
+                k in result # only results for service, not all supplied arg +
+                and k not in BagOfGoodies.infra_return_keys() # hide infra keys
+            )
+        }
 
-        self.post_task_run(result, extra_events=extra_events)
+        # Print the post-call header
+        self.print_postcall_header(converted_task_results)
 
-        return self.bag.copy()
+        # Send a custom task-succeeded event with the results
+        if not self.request.called_directly:
+            self.send_event(
+                'task-results',
+                firex_result=convert_to_serializable(converted_task_results),
+                **(extra_events or {}),
+            )
+            self.send_flame(indirect_resolved_converted_return_args)
 
-    def convert_results_if_returns_defined_by_task_definition(self, result):
-        # If @returns decorator was used, we don't need to convert since that's taken care by the decorator
-        if not self._decorated_return_keys and self._task_return_keys:
-            # This is only used if the @app.task(returns=) is used
-            result = self.convert_returns_to_dict(self._task_return_keys, result)
-
-        return result
+        return indirect_resolved_converted_return_args
 
     def _get_cache_key(self):
         # Need a sting hash of name + all_args
@@ -721,12 +656,16 @@ class FireXTask(Task):
         self.backend.set(cache_key, uuid)
 
     @classmethod
-    def _retrieve_result_from_backend(cls, cached_uuid, secs_to_wait_for_cached_result: int=3):
+    def _retrieve_result_from_backend(
+        cls,
+        cached_uuid,
+        secs_to_wait_for_cached_result: int=3,
+    ) -> dict[str, Any]:
         # Retrieve the result of the original cached uuid from the backend
         logger.info(f'Retrieving result for {cached_uuid}; might take up to {secs_to_wait_for_cached_result} seconds.')
         loop_start_time = current_time = time.time()
         while (current_time - loop_start_time) < secs_to_wait_for_cached_result:
-            result = cls.app.backend.get_result(cached_uuid)
+            result : dict[str, Any] = cls.app.backend.get_result(cached_uuid)
             if set(result.keys()) != {'hostname', 'pid'}:
                 # When the result is not populated, we get a dict back with these two keys
                 break # --< We're done
@@ -740,15 +679,13 @@ class FireXTask(Task):
         return result
 
     @classmethod
-    def _run_from_cache(cls, cached_uuid):
+    def _run_from_cache(cls, cached_uuid) -> dict[str, Any]:
         result = cls._retrieve_result_from_backend(cached_uuid)
-        cleaned_result = cls.convert_cached_results(result)
-        return cleaned_result
-
-    @classmethod
-    def convert_cached_results(cls, result):
-        return_keys = result.get('__task_return_keys', ()) + ('__task_return_keys',)
-        return {k: v for k, v in result.items() if k in return_keys}
+        cached_result_return_keys = result.get('__task_return_keys', ()) + ('__task_return_keys',)
+        return {
+            k: v for k, v in result.items()
+            if k in cached_result_return_keys
+        }
 
     @property
     def default_use_cache(self):
@@ -774,7 +711,7 @@ class FireXTask(Task):
         self._cache_set(cache_key, self.request.id)
         return result
 
-    def cache_call(self):
+    def cache_call(self) -> dict[str, Any]:
         cache_key = self._get_cache_key()
         try:
             cached_uuid = self._cache_get(cache_key)
@@ -789,34 +726,65 @@ class FireXTask(Task):
                              'Reverting to a real call')
                 return self._real_call_and_cache_set(cache_key)
             else:
-                return self._process_result(result,
-                                            extra_events={'cached_result_from': cached_uuid})
+                return self._process_result(
+                    result,
+                    extra_events={'cached_result_from': cached_uuid})
 
-    def real_call(self):
-        result = super(FireXTask, self).__call__(
+    def _find_applicable_overriding_return_keys(
+        self,
+        results_tuple: tuple[Any, ...],
+    ) -> tuple[str, ...]:
+        result_count = len(results_tuple)
+        if (
+            # integration tests rely on no validation for implicit dynamic returns :/
+            # so assume DYNAMIC_RETURN if it looks like it
+            self._return_keys is None
+            and result_count == 1
+            and isinstance(results_tuple[0], dict)
+        ):
+            return (DYNAMIC_RETURN,)
+
+        if (
+            not self.is_overriding_task() # base case in recursion
+            # lots of IT have plugins that violate overriden task returns contract
+            # by returning nothing, which is bad but needs needs to be accomodated.
+            # TODO: "strict" should disallow this.
+            or result_count == len(self._return_keys or [])
+        ):
+            return self.return_keys
+
+        # return overridden result.
+        return self.get_overridden_task()._find_applicable_overriding_return_keys(results_tuple)
+
+    def real_call(self) -> dict[str, Any]:
+        # this is the raw result from the service's .run method,
+        # prior to all FireX processing.
+        _call_run_result : Any = super(FireXTask, self).__call__(
             *self.context.bog.args,
-            **self.context.bog.public_kwargs())
-        converted_result = self.convert_results_if_returns_defined_by_task_definition(result)
-        return self._process_result(converted_result)
+            **self.context.bog.kwargs)
 
-    def final_call(self):
+        results_tuple = FireXResults.task_returns_to_tuple(self.return_keys, _call_run_result)
+        applicable_return_keys = self._find_applicable_overriding_return_keys(results_tuple)
+
+        return self._process_result(
+            FireXResults.convert_result_tuple_to_dict(applicable_return_keys, results_tuple)
+        )
+
+    def final_call(self) -> dict[str, Any]:
         if self.is_cache_enabled():
             return self.cache_call()
         else:
             return self.real_call()
 
-    def _process_arguments_and_run(self, *args, **kwargs):
-
-        self.context.bog = BagOfGoodies(
-            self.sig,
-            args,
-            kwargs,
-            has_returns_from_previous_task=kwargs.get('chain_depth', 0) > 0
-        )
+    def _process_arguments_and_run(self, *args, **kwargs) -> dict[str, Any]:
 
         # run any "pre" converters attached to this task
-        converted = ConverterRegister.task_convert(task_name=self.name, pre_task=True, **self.bag)
-        self.context.bog.update(converted)
+        self.context.bog.update(
+            ConverterRegister.task_convert(
+                task_name=self.name,
+                pre_task=True,
+                **self.context.bog.get_public_supplied_args())
+        )
 
         if not self.request.called_directly:
             self._pause_if_point_requested(_PausePoints.PAUSE_BEFORE)
@@ -861,22 +829,13 @@ class FireXTask(Task):
                 logger.warning(f'{self.short_name} failed and retrying {self.request.retries+1}/{self.max_retries}')
         super(FireXTask, self).retry(*args, **kwargs)
 
-    def get_infra_bag(self) -> MappingProxyType[str, Any]:
-        return MappingProxyType(self.context.bog.return_args)
-
     @property
-    def bag(self) -> MappingProxyType[str, Any]:
-        infra_bag = dict(self.get_infra_bag())
-        infra_bag.pop(AutoInjectRegistry.AUTO_IN_REG_ABOG_KEY, None)
-        return MappingProxyType(infra_bag)
-
-    @property
-    def required_args(self) -> list:
+    def required_args(self) -> list[str]:
         """
         :return: list of required arguments to the microservice.
         """
         if self._in_required is None:
-            self._in_required, self._in_optional = parse_signature(self.sig)
+            self._in_required = self.context.bog.get_required_arg_names()
         return list(self._in_required)
 
     @property
@@ -884,27 +843,9 @@ class FireXTask(Task):
         """
         :return: dict of optional arguments to the microservice, and their values.
         """
-        if self._in_required is None or self._in_optional is None:
-            self._in_required, self._in_optional = parse_signature(self.sig)
+        if self._in_optional is None:
+            self._in_optional = self.context.bog.get_optional_args_to_default_values()
         return dict(self._in_optional)
-
-    @staticmethod
-    def _get_bound_args(sig, args, kwargs) -> dict:
-        return sig.bind(*args, **kwargs).arguments
-
-    @staticmethod
-    def _get_default_bound_args(sig, bound_args) -> dict:
-        # Find and store the remaining default arguments for debugging purposes
-        default_bound_args = OrderedDict()
-        params = sig.parameters
-        for param in params.values():
-            if param.name not in bound_args:
-                if param.default == param.empty and param.kind == param.VAR_POSITIONAL:
-                    # The param.default is set to param.empty in such cases, and need to be a tuple instead
-                    default_bound_args[param.name] = tuple()
-                else:
-                    default_bound_args[param.name] = param.default
-        return default_bound_args
 
     @property
     def args(self) -> tuple[Any, ...]:
@@ -916,18 +857,19 @@ class FireXTask(Task):
 
     @property
     def bound_args(self) -> dict[str, Any]:
-        # bound args and kwargs, not just args as the name implies.
-        return self._get_bound_args(self.sig, self.args, self.context.bog.public_kwargs())
+        return self.sig.bind_partial(
+            *self.context.bog.args,
+            **self.context.bog.kwargs,
+        ).arguments
 
     @property
     def default_bound_args(self) -> dict[str, Any]:
-        return self._get_default_bound_args(self.sig, self.bound_args)
+        return self.context.bog.get_unsupplied_default_args()
 
     def map_args(self, *args, **kwargs) -> dict:
-        b = BagOfGoodies(self.sig, args, kwargs)
-        bound_args = self.sig.bind(*b.args, **b.public_kwargs())
-        bound_args.apply_defaults()
-        return bound_args.arguments
+        return BagOfGoodies(
+            self.sig, args, kwargs,
+        ).get_accepted_supplied_and_default_args()
 
     @property
     def all_args(self) -> MappingProxyType:
@@ -936,10 +878,13 @@ class FireXTask(Task):
     @property
     def abog(self) -> MappingProxyType[str, Any]:
         # TODO: actually change to MappingProxyType? DictWillNotAllowWrites was in place for years.
-        return self.bag | self.default_bound_args
+        return self.default_bound_args | self.context.bog.get_public_supplied_args()
+
+    def _get_infra_abog(self) -> MappingProxyType[str, Any]:
+        return self.default_bound_args | self.context.bog.all_supplied_args()
 
     def _get_auto_injected_arg(self, arg_name: str):
-        return self.abog.get(arg_name) or self.context.auto_inject_reg().get(arg_name)
+        return self.context.auto_inject_reg().get(arg_name)
 
     @property
     def uid(self):
@@ -1064,7 +1009,7 @@ class FireXTask(Task):
 
     def enqueue_child(
         self,
-        chain: Signature,
+        chain: SignatureX,
         add_to_enqueued_children: bool=True,
         block: bool=False,
         raise_exception_on_failure: Optional[bool]=None,
@@ -1080,23 +1025,18 @@ class FireXTask(Task):
             # Only set it if not None, otherwise we want to leave the downstream default
             kwargs['raise_exception_on_failure'] = raise_exception_on_failure
 
-        from firexkit.chain import InjectArgs, verify_chain_arguments
-
         if isinstance(chain, InjectArgs):
-            return
+            return # FIXME: need to always return an AsyncResult
 
-        _auto_inject_chain_kludge(chain, self.get_infra_bag())
-        verify_chain_arguments(chain)
-        child_result = _chain_apply_async(chain)
+        child_result = chain.apply_async_x(self.context.bog.get_auto_inject_registry())
         if apply_async_epilogue:
             apply_async_epilogue(child_result)
         if add_to_enqueued_children:
             self._update_child_state(child_result, self._PENDING)
         if block:
             try:
-                wait_on_async_results_and_maybe_raise(results=child_result,
-                                                      caller_task=self,
-                                                      **kwargs)
+                wait_on_async_results_and_maybe_raise(
+                    results=child_result, caller_task=self, **kwargs)
             finally:
                 if add_to_enqueued_children:
                     self._update_child_state(child_result, self._UNBLOCKED)
@@ -1577,18 +1517,20 @@ class FireXTask(Task):
         self.send_firex_event_raw({'flame_data': formatted_data})
 
     def init_auto_inject_registry(self, auto_inject_args: list[AutoInjectSpec]):
-        # expected to only be called by the root task.
-        assert AutoInjectRegistry.AUTO_IN_REG_ABOG_KEY not in self.abog, 'AutoInjectRegistry already initialized'
-
+        """
+            Expected to only be called once per run, by the root task. The registry
+            created there then propagates to all tasks via the BoG.
+        """
         # auto inject pause args, if any.
         pauses = PauseTasks.create_from_abog(self.abog)
         if pauses.pause_tasks_by_name:
             auto_inject_args = auto_inject_args + [ AutoInjectSpec(PauseTasks, PauseTasks.PAUSE_TASKS_ABOG_KEY, pauses) ]
 
-        # return_args is "the one". It's an input, not a result, apparently.
-        self.context.bog.return_args[AutoInjectRegistry.AUTO_IN_REG_ABOG_KEY] = AutoInjectRegistry.create_auto_in_reg(
-            auto_inject_args)
+        self.context.bog.init_auto_inject_registry(auto_inject_args)
 
+    def has_dynamic_returns(self) -> bool:
+        # If any of the previous keys has a dynamic return, then we can't do any validation
+        return any(FireXTask.is_dynamic_return(k) for k in self.return_keys)
 
 def undecorate_func(func):
     undecorated_func = func
@@ -1607,21 +1549,6 @@ def undecorate(task):
         return undecorated_func
     else:
         return MethodType(undecorated_func, task)
-
-
-def parse_signature(sig: inspect.Signature) -> tuple[set[str], dict[str, Any]]:
-    """Parse the run function of a microservice and return required and optional arguments"""
-    required = set()
-    optional = {}
-    for param in sig.parameters.values():
-        if param.kind in [param.VAR_POSITIONAL, param.VAR_KEYWORD]:
-            # skip *args, and **kwargs
-            continue
-        elif param.default is param.empty:
-            required.add(param.name)
-        else:
-            optional[param.name] = param.default
-    return required, optional
 
 
 def get_attr_unwrapped(fun: Callable, attr_name, *default_value):

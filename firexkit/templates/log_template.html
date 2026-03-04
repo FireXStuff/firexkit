@@ -18,6 +18,15 @@
         <div class="header-link" style="flex: 1 1 0%;"><b style="width: 100%;">{{ header_main_title }}</b></div>
         <div style="margin-left: auto; display: flex; align-items: center; height: 100%;">
             {% if worker_log %}
+            {% if tt_details_url %}
+            <span style="border-left: 1px solid rgb(0, 0, 0); height: 100%;">
+               <div class="header-link">
+                  <a title="View Test Tracker" href="{{ tt_details_url }}">
+                     <i class="fas fa-crosshairs"></i> Tracker
+                  </a>
+               </div>
+            </span>
+            {% endif %}
             <span style="border-left: 1px solid rgb(0, 0, 0); height: 100%;">
                <div class="header-link">
                   <a href="{{ logs_dir_url }}">
@@ -42,6 +51,15 @@
                <div class="header-link">
                   <a href="{{ code_url }}" title="See Code">
                      <i class="fas fa-file-code"></i>
+                  </a>
+               </div>
+            </span>
+            {% endif %}
+            {% if tt_details_url %}
+            <span style="border-left: 1px solid rgb(0, 0, 0); height: 100%;">
+               <div class="header-link">
+                  <a title="View Test Tracker" href="{{ tt_details_url }}">
+                     <i class="fas fa-crosshairs"></i> Tracker
                   </a>
                </div>
             </span>

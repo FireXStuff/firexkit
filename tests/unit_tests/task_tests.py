@@ -28,7 +28,6 @@ class TaskTests(unittest.TestCase):
             # noinspection PyAbstractClass
             class TestTask(FireXTask):
                 name = self.__module__ + "." + self.__class__.__name__ + "." + "TestClass"
-
                 def run(self):
                     pass
 
@@ -53,8 +52,10 @@ class TaskTests(unittest.TestCase):
                 def run(self):
                     TestTask.ran = True
 
-                def post_task_run(self, results, extra_events=None):
+                def _process_result(self, *args, **kwargs):
+                    r = super()._process_result(*args, **kwargs)
                     TestTask.post_ran = True
+                    return r
 
             test_obj = TestTask()
             self.assertIsNotNone(test_obj, "Task object not instantiated")
@@ -160,81 +161,81 @@ class TaskTests(unittest.TestCase):
             value = 1
 
             def post_task_run(self, results, extra_events=None):
-                the_test.assertListEqual(self.args, [value])
+                the_test.assertEqual(self.args, (value,) )
                 the_test.assertDictEqual(self.kwargs, {})
                 the_test.assertListEqual(self.required_args, ['arg1'])
                 the_test.assertDictEqual(self.bound_args, {'arg1': value})
                 the_test.assertDictEqual(self.default_bound_args, {})
                 the_test.assertDictEqual(self.all_args.copy(), {'arg1': value})
-                the_test.assertDictEqual(self.bag.copy(), {'arg1': value})
+                the_test.assertDictEqual(self.context.bog.return_args, {'arg1': value})
                 the_test.assertDictEqual(self.abog.copy(), {'arg1': value})
 
-            a.post_task_run = types.MethodType(post_task_run, a)
+            a._process_result =types.MethodType(post_task_run, a)
             a(value)
 
         with self.subTest('One required argument with keyword'):
             value = 1
 
             def post_task_run(self, results, extra_events=None):
-                the_test.assertListEqual(self.args, [])
+                the_test.assertEqual(self.args, tuple())
                 the_test.assertDictEqual(self.kwargs, {'arg1': value})
                 the_test.assertListEqual(self.required_args, ['arg1'])
                 the_test.assertDictEqual(self.bound_args, {'arg1': value})
                 the_test.assertDictEqual(self.default_bound_args, {})
                 the_test.assertDictEqual(self.all_args.copy(), {'arg1': value})
-                the_test.assertDictEqual(self.bag.copy(), {'arg1': value})
+                the_test.assertDictEqual(self.context.bog.return_args.copy(), {'arg1': value})
                 the_test.assertDictEqual(self.abog.copy(), {'arg1': value})
 
-            a.post_task_run = types.MethodType(post_task_run, a)
+            a._process_result =types.MethodType(post_task_run, a)
             a(arg1=value)
 
         with self.subTest('One optional argument'):
             value = 1
 
             def post_task_run(self, results, extra_events=None):
-                the_test.assertListEqual(self.args, [value])
+                the_test.assertEqual(self.args, (value,))
                 the_test.assertDictEqual(self.kwargs, {})
                 the_test.assertListEqual(self.required_args, [])
                 the_test.assertDictEqual(self.bound_args, {'arg1': value})
                 the_test.assertDictEqual(self.default_bound_args, {})
                 the_test.assertDictEqual(self.all_args.copy(), {'arg1': value})
-                the_test.assertDictEqual(self.bag.copy(), {'arg1': value})
+                the_test.assertDictEqual(self.context.bog.return_args.copy(), {'arg1': value})
                 the_test.assertDictEqual(self.abog.copy(), {'arg1': value})
 
-            b.post_task_run = types.MethodType(post_task_run, b)
+            b._process_result =types.MethodType(post_task_run, b)
             b(value)
 
         with self.subTest('One optional argument with no value'):
             value = None
 
             def post_task_run(self, results, extra_events=None):
-                the_test.assertListEqual(self.args, [])
+                the_test.assertEqual(self.args, tuple())
                 the_test.assertDictEqual(self.kwargs, {})
                 the_test.assertListEqual(self.required_args, [])
                 the_test.assertDictEqual(self.bound_args, {})
                 the_test.assertDictEqual(self.default_bound_args, {'arg1': value})
                 the_test.assertDictEqual(self.all_args.copy(), {'arg1': value})
-                the_test.assertDictEqual(self.bag.copy(), {})
+                the_test.assertDictEqual(self.context.bog.return_args.copy(), {})
                 the_test.assertDictEqual(self.abog.copy(), {'arg1': value})
                 self.abog['d'] = 1
 
-            b.post_task_run = types.MethodType(post_task_run, b)
+            b._process_result =types.MethodType(post_task_run, b)
             b()
 
         with self.subTest('One optional argument with keyword'):
             value = 1
 
             def post_task_run(self, results, extra_events=None):
-                the_test.assertListEqual(self.args, [])
+                the_test.assertEqual(self.args, tuple())
                 the_test.assertDictEqual(self.kwargs, {'arg1': value})
                 the_test.assertListEqual(self.required_args, [])
                 the_test.assertDictEqual(self.bound_args, {'arg1': value})
                 the_test.assertDictEqual(self.default_bound_args, {})
                 the_test.assertDictEqual(self.all_args.copy(), {'arg1': value})
-                the_test.assertDictEqual(self.bag.copy(), {'arg1': value})
+                the_test.assertDictEqual(self.context.bog.return_args.copy(), {'arg1': value})
                 the_test.assertDictEqual(self.abog.copy(), {'arg1': value})
 
-            b.post_task_run = types.MethodType(post_task_run, b)
+            b._process_result =types.MethodType(post_task_run, b)
             b(arg1=value)
 
         with self.subTest('One required and one optional argument '):
@@ -242,7 +243,7 @@ class TaskTests(unittest.TestCase):
             value2 = 2
 
             def post_task_run(self, results, extra_events=None):
-                the_test.assertListEqual(self.args, [value1, value2])
+                the_test.assertEqual(self.args, (value1, value2))
                 the_test.assertDictEqual(self.kwargs, {})
                 the_test.assertListEqual(self.required_args, ['arg1'])
                 the_test.assertDictEqual(self.bound_args, {'arg1': value1,
@@ -250,12 +251,12 @@ class TaskTests(unittest.TestCase):
                 the_test.assertDictEqual(self.default_bound_args, {})
                 the_test.assertDictEqual(self.all_args.copy(), {'arg1': value1,
                                                                 'arg2': value2})
-                the_test.assertDictEqual(self.bag.copy(), {'arg1': value1,
+                the_test.assertDictEqual(self.context.bog.return_args.copy(), {'arg1': value1,
                                                            'arg2': value2})
                 the_test.assertDictEqual(self.abog.copy(), {'arg1': value1,
                                                             'arg2': value2})
 
-            c.post_task_run = types.MethodType(post_task_run, c)
+            c._process_result =types.MethodType(post_task_run, c)
             c(value1, value2)
 
         with self.subTest('One required and one optional argument with keyword'):
@@ -263,7 +264,7 @@ class TaskTests(unittest.TestCase):
             value2 = 2
 
             def post_task_run(self, results, extra_events=None):
-                the_test.assertListEqual(self.args, [])
+                the_test.assertEqual(self.args, tuple())
                 the_test.assertDictEqual(self.kwargs, {'arg1': value1,
                                                        'arg2': value2})
                 the_test.assertListEqual(self.required_args, ['arg1'])
@@ -272,12 +273,12 @@ class TaskTests(unittest.TestCase):
                 the_test.assertDictEqual(self.default_bound_args, {})
                 the_test.assertDictEqual(self.all_args.copy(), {'arg1': value1,
                                                                 'arg2': value2})
-                the_test.assertDictEqual(self.bag.copy(), {'arg1': value1,
+                the_test.assertDictEqual(self.context.bog.return_args.copy(), {'arg1': value1,
                                                            'arg2': value2})
                 the_test.assertDictEqual(self.abog.copy(), {'arg1': value1,
                                                             'arg2': value2})
 
-            c.post_task_run = types.MethodType(post_task_run, c)
+            c._process_result =types.MethodType(post_task_run, c)
             c(arg2=value2, arg1=value1)
 
         with self.subTest('One required, one optional provided'):
@@ -285,18 +286,18 @@ class TaskTests(unittest.TestCase):
             value2 = None
 
             def post_task_run(self, results, extra_events=None):
-                the_test.assertListEqual(self.args, [value1])
+                the_test.assertEqual(self.args, (value1,) )
                 the_test.assertDictEqual(self.kwargs, {})
                 the_test.assertListEqual(self.required_args, ['arg1'])
                 the_test.assertDictEqual(self.bound_args, {'arg1': value1})
                 the_test.assertDictEqual(self.default_bound_args, {'arg2': value2})
                 the_test.assertDictEqual(self.all_args.copy(), {'arg1': value1,
                                                                 'arg2': value2})
-                the_test.assertDictEqual(self.bag.copy(), {'arg1': value1})
+                the_test.assertDictEqual(self.context.bog.return_args.copy(), {'arg1': value1})
                 the_test.assertDictEqual(self.abog.copy(), {'arg1': value1,
                                                             'arg2': value2})
 
-            c.post_task_run = types.MethodType(post_task_run, c)
+            c._process_result =types.MethodType(post_task_run, c)
             c(value1)
 
         with self.subTest('One required and one optional argument with other optional'):
@@ -304,7 +305,7 @@ class TaskTests(unittest.TestCase):
             value2 = 2
 
             def post_task_run(self, results, extra_events=None):
-                the_test.assertListEqual(self.args, [value1])
+                the_test.assertEqual(self.args, (value1,) )
                 the_test.assertDictEqual(self.kwargs, {'arg2': value2,
                                                        'arg3': 3})
                 the_test.assertListEqual(self.required_args, ['arg1'])
@@ -313,15 +314,15 @@ class TaskTests(unittest.TestCase):
                                                            'arg2': value2,
                                                            'some_optional_kwargs': {'arg3': 3}})
                 the_test.assertDictEqual(self.default_bound_args, {})
-                the_test.assertDictEqual(self.all_args.copy(), self.bound_args)
-                the_test.assertDictEqual(self.bag.copy(), {'arg1': value1,
-                                                           'arg2': value2,
-                                                           'arg3': 3})
-                the_test.assertDictEqual(self.abog.copy(), {'arg1': value1,
+                the_test.assertEqual(self.all_args, self.bound_args)
+                the_test.assertEqual(self.context.bog.return_args, {'arg1': value1,
+                                                        'arg2': value2,
+                                                        'arg3': 3})
+                the_test.assertDictEqual(self.abog, {'arg1': value1,
                                                             'arg2': value2,
                                                             'arg3': 3})
 
-            d.post_task_run = types.MethodType(post_task_run, d)
+            d._process_result =types.MethodType(post_task_run, d)
             d(value1, arg2=value2, arg3=3)
 
 

@@ -3,6 +3,9 @@ import unittest
 
 from firexkit.bag_of_goodies import BagOfGoodies
 
+# loads of these tests encode a bug, and when the
+# bug was fixed the test cases with the bug were kept.
+CHAIN_DEPTH_KWARGS = dict(chain_depth=1)
 
 class BagTests(unittest.TestCase):
     def test_first_unbound_microservice(self):
@@ -25,17 +28,17 @@ class BagTests(unittest.TestCase):
                   'one': 'me'}
         bog = BagOfGoodies(sig, args, kwargs)
 
-        goodies = bog.get_bag()
+        goodies = bog.return_args
         self.assertDictEqual(goodies, kwargs, "bag of goodies should be same as kwargs")
         new_data = {"random": 0}
         kwargs.update(new_data)
-        self.assertNotEqual(len(kwargs), len(bog.get_bag()), "Updating kwargs should not affect the bog")
+        self.assertNotEqual(len(kwargs), len(bog.return_args), "Updating kwargs should not affect the bog")
         bog.update(new_data)
-        self.assertDictEqual(goodies, kwargs, "bag of goodies should be same as kwargs after update")
+        self.assertDictEqual(bog.return_args, kwargs, "bag of goodies should be same as kwargs after update")
         mod_value = {"chain": "something"}
         kwargs.update(mod_value)
         bog.update(mod_value)
-        self.assertDictEqual(goodies, kwargs, "bag of goodies should be same as kwargs after update to existing key")
+        self.assertDictEqual(bog.return_args, kwargs, "bag of goodies should be same as kwargs after update to existing key")
 
     def test_first_with_explicit_args(self):
 
@@ -46,11 +49,13 @@ class BagTests(unittest.TestCase):
         sig = inspect.signature(a_simple_task)
         args = ('nope',)
         kwargs = {}
-        bog = BagOfGoodies(sig, args, kwargs)
-        self.assertDictEqual(bog.get_bag(),
-                             {"value": 'nope'})
+        bog = _in_chain_bog(sig, args, kwargs)
+        self.assertDictEqual(
+            bog.return_args,
+            {"value": 'nope'})
+
         bog.update({"value": 'yup'})
-        self.assertDictEqual(bog.get_bag(),
+        self.assertDictEqual(bog.return_args,
                              {"value": 'yup'})
         a, k = split_for_signature(bog)
         self.assertEqual(len(a), 1)
@@ -67,9 +72,11 @@ class BagTests(unittest.TestCase):
         with self.subTest('positional dict is first arg, but no previous returns'):
             args = ({'k1': 'v1'},)
             kwargs = {}
-            bog = BagOfGoodies(sig, args, kwargs, has_returns_from_previous_task=False)
-            self.assertDictEqual(bog.get_bag(),
-                                 {'some_key': {'k1': 'v1'}})
+            bog = BagOfGoodies(sig, args, kwargs)
+            self.assertDictEqual(
+                bog.return_args,
+                {'some_key': {'k1': 'v1'}}
+            )
             a, k = split_for_signature(bog)
             self.assertEqual(len(a), 1)
             self.assertEqual(a[0], {'k1': 'v1'})
@@ -79,8 +86,8 @@ class BagTests(unittest.TestCase):
                        'k2': 'other_value'}
             args = (old_bog, {'k1': 'v1'},)
             kwargs = {}
-            bog = BagOfGoodies(sig, args, kwargs)
-            self.assertDictEqual(bog.get_bag(),
+            bog = _in_chain_bog(sig, args, kwargs)
+            self.assertDictEqual(bog.return_args,
                                  {'some_key': {'k1': 'v1'},
                                   'k2': 'other_value'})
             a, k = split_for_signature(bog)
@@ -107,19 +114,18 @@ class BagTests(unittest.TestCase):
                    'one': 'me'}
         args = (old_bog,)
         kwargs = {}
-        bog = BagOfGoodies(sig, args, kwargs)
+        bog = _in_chain_bog(sig, args, kwargs)
 
-        goodies = bog.get_bag()
-        self.assertDictEqual(goodies, old_bog, "bag of goodies should be same as kwargs")
+        self.assertDictEqual(bog.return_args, old_bog, "bag of goodies should be same as kwargs")
         new_data = {"random": 0}
         old_bog.update(new_data)
-        self.assertNotEqual(len(old_bog), len(bog.get_bag()), "Updating old bog should not affect the bog")
+        self.assertNotEqual(len(old_bog), len(bog.return_args), "Updating old bog should not affect the bog")
         bog.update(new_data)
-        self.assertDictEqual(goodies, old_bog, "bag of goodies should be same as old_bog after update")
+        self.assertDictEqual(bog.return_args, old_bog, "bag of goodies should be same as old_bog after update")
         mod_value = {"chain": "something"}
         old_bog.update(mod_value)
         bog.update(mod_value)
-        self.assertDictEqual(goodies, old_bog, "bag of goodies should be same as old_bog after update to existing key")
+        self.assertDictEqual(bog.return_args, old_bog, "bag of goodies should be same as old_bog after update to existing key")
 
     def test_indirect_from_return(self):
 
@@ -148,10 +154,10 @@ class BagTests(unittest.TestCase):
                              '~/firex7/flow_tests/argument_validation_tests.py']}
         args = (old_bog,)
         kwargs = {}
-        bog = BagOfGoodies(sig, args, kwargs)
+        bog = _in_chain_bog(sig, args, kwargs)
 
-        self.assertTrue('missing' in bog.get_bag())
-        self.assertEqual(bog.get_bag()['missing'], 'pass')
+        self.assertTrue('missing' in bog.return_args)
+        self.assertEqual(bog.return_args['missing'], 'pass')
 
         a, k = split_for_signature(bog)
         ending(*a, **k)
@@ -162,7 +168,7 @@ class BagTests(unittest.TestCase):
         def ending_v2(final, missing, **the_kwargs):
             self.assertTrue(True)
         sig_v2 = inspect.signature(ending_v2)
-        bog_v2 = BagOfGoodies(sig_v2, args, kwargs)
+        bog_v2 =  _in_chain_bog(sig_v2, args, kwargs)
         a, k = split_for_signature(bog_v2)
         ending_v2(*a, **k)
         self.assertTrue(len(k), 16)
@@ -185,7 +191,7 @@ class BagTests(unittest.TestCase):
         kwargs = {"second_value": 'success',
                   "do_not_use": "failure",
                   "arg_four": "success"}
-        bog = BagOfGoodies(sig, args, kwargs)
+        bog = _in_chain_bog(sig, args, kwargs)
         a, k = split_for_signature(bog)
         fun(*a, **k)
 
@@ -199,12 +205,9 @@ class BagTests(unittest.TestCase):
             # Should not reach here. We only want the signature
             pass  # pragma: no cover
         sig = inspect.signature(from_another_test)
-        bog = BagOfGoodies(sig, args, kwargs)
+        bog = _in_chain_bog(sig, args, kwargs)
 
-        combined = {}
-        combined.update(old_bog)
-        combined.update(kwargs)
-        self.assertDictEqual(bog.get_bag(), combined)
+        self.assertDictEqual(bog.return_args, old_bog | kwargs)
 
     def test_bind_goodies(self):
         old_bog = {'geo_loc': 'OTT'}
@@ -218,34 +221,9 @@ class BagTests(unittest.TestCase):
                 a_self.assertEqual(expected_module, "additional_for_plugin_propagation.py")
         t = Thing()
         sig = inspect.signature(t.a_func)
-        bog = BagOfGoodies(sig, args, kwargs)
+        bog = _in_chain_bog(sig, args, kwargs)
         a, k = split_for_signature(bog)
         t.a_func(*a, **k)
-
-    def test_pop(self):
-        # noinspection PyUnusedLocal
-        def some_func(a, b=None):
-            # Should not reach here. We only want the signature
-            pass  # pragma: no cover
-        sig = inspect.signature(some_func)
-
-        with self.subTest('Testing popping from kwargs'):
-            bog = BagOfGoodies(sig, (1,), {'b': 2})
-            self.assertEqual(bog.pop('b'), 2)
-            self.assertNotIn('b', bog.kwargs)
-            self.assertNotIn('b', bog.return_args)
-            with self.assertRaises(KeyError):
-                bog.pop('b')
-            self.assertEqual(bog.pop('b', 0), 0)
-
-        with self.subTest('Testing popping from return_args'):
-            bog = BagOfGoodies(sig, (1,), {'b': 2, 'c': 3})
-            self.assertEqual(bog.pop('c'), 3)
-            self.assertNotIn('c', bog.kwargs)
-            self.assertNotIn('c', bog.return_args)
-            with self.assertRaises(KeyError):
-                bog.pop('c')
-            self.assertEqual(bog.pop('c', 5), 5)
 
 
 # noinspection PyUnusedLocal
@@ -292,11 +270,11 @@ class BogTests(unittest.TestCase):
         input_args = (previous_returns, )
         for sig in [self.sig_func_a, self.sig_func_b, self.sig_func_c, self.sig_func_d, self.sig_func_e]:
             with self.subTest(sig.__str__()):
-                bog = BagOfGoodies(sig, input_args, {})
+                bog = _in_chain_bog(sig, input_args, {})
                 args, kwargs = split_for_signature(bog)
-                self.assertDictEqual(kwargs, previous_returns)
-                self.assertListEqual(args, [])
-                self.assertDictEqual(bog.get_bag(), previous_returns)
+                self.assertEqual(kwargs, previous_returns)
+                self.assertEqual(args, tuple())
+                self.assertDictEqual(bog.return_args, previous_returns)
 
     def test_passing_more_than_exact_requirement_from_bog(self):
         useful_return = {'x': 1}
@@ -305,18 +283,18 @@ class BogTests(unittest.TestCase):
         input_args = (previous_returns, )
         for sig in [self.sig_func_a, self.sig_func_b]:
             with self.subTest(sig.__str__()):
-                bog = BagOfGoodies(sig, input_args, {})
+                bog = _in_chain_bog(sig, input_args, {})
                 args, kwargs = split_for_signature(bog)
-                self.assertDictEqual(kwargs, useful_return)
-                self.assertListEqual(args, [])
+                self.assertEqual(kwargs, useful_return)
+                self.assertEqual(args, tuple())
                 self.assertDictEqual(bog.return_args, previous_returns)
         for sig in [self.sig_func_c, self.sig_func_d, self.sig_func_e]:
             with self.subTest(sig.__str__()):
-                bog = BagOfGoodies(sig, input_args, {})
+                bog = _in_chain_bog(sig, input_args, {})
                 args, kwargs = split_for_signature(bog)
-                self.assertDictEqual(kwargs, previous_returns)
-                self.assertListEqual(args, [])
-                self.assertDictEqual(bog.get_bag(), previous_returns)
+                self.assertEqual(kwargs, previous_returns)
+                self.assertEqual(args, tuple())
+                self.assertDictEqual(bog.return_args, previous_returns)
 
     def test_passing_from_bog_with_an_arg_overwrite(self):
         previous_returns = {'x': 1}
@@ -324,11 +302,11 @@ class BogTests(unittest.TestCase):
         input_args = (previous_returns, x_user_overwrite)
         for sig in [self.sig_func_a, self.sig_func_b, self.sig_func_d, self.sig_func_e]:
             with self.subTest(sig.__str__()):
-                bog = BagOfGoodies(sig, input_args, {})
+                bog = _in_chain_bog(sig, input_args, {})
                 args, kwargs = split_for_signature(bog)
-                self.assertDictEqual(kwargs, {})
-                self.assertListEqual(args, [x_user_overwrite])
-                self.assertDictEqual(bog.get_bag(), {'x': x_user_overwrite})
+                self.assertEqual(kwargs, {})
+                self.assertEqual(args, tuple([x_user_overwrite]))
+                self.assertDictEqual(bog.return_args, {'x': x_user_overwrite})
 
     def test_passing_from_bog_with_an_kwarg_overwrite(self):
         previous_returns = {'x': 1}
@@ -336,11 +314,11 @@ class BogTests(unittest.TestCase):
         input_kwargs = {'x': 2}
         for sig in [self.sig_func_a, self.sig_func_b, self.sig_func_c, self.sig_func_d, self.sig_func_e]:
             with self.subTest(sig.__str__()):
-                bog = BagOfGoodies(sig, input_args, input_kwargs)
+                bog = _in_chain_bog(sig, input_args, input_kwargs)
                 args, kwargs = split_for_signature(bog)
-                self.assertDictEqual(kwargs, input_kwargs)
-                self.assertListEqual(args, [])
-                self.assertDictEqual(bog.get_bag(), input_kwargs)
+                self.assertEqual(kwargs, input_kwargs)
+                self.assertEqual(args, tuple())
+                self.assertDictEqual(bog.return_args, input_kwargs)
 
     def test_passing_from_bog_with_an_arg_overwrite_indirect_same_var(self):
         previous_returns = {'x': 1}
@@ -348,11 +326,11 @@ class BogTests(unittest.TestCase):
         input_args = (previous_returns, x_user_overwrite)
         for sig in [self.sig_func_a, self.sig_func_b, self.sig_func_d, self.sig_func_e]:
             with self.subTest(sig.__str__()):
-                bog = BagOfGoodies(sig, input_args, {})
+                bog = _in_chain_bog(sig, input_args, {})
                 args, kwargs = split_for_signature(bog)
-                self.assertDictEqual(kwargs, {})
-                self.assertListEqual(args, [1])
-                self.assertDictEqual(bog.get_bag(), {'x': 1})
+                self.assertEqual(kwargs, {})
+                self.assertEqual(args, tuple([1]))
+                self.assertDictEqual(bog.return_args, {'x': 1})
 
     def test_passing_from_bog_with_indirect(self):
         previous_returns = {'y': 2}
@@ -362,18 +340,20 @@ class BogTests(unittest.TestCase):
         input_args = (previous_returns,)
         for sig in [self.sig_func_a, self.sig_func_b]:
             with self.subTest(sig.__str__()):
-                bog = BagOfGoodies(sig, input_args, new_inputs)
+                bog = _in_chain_bog(sig, input_args, new_inputs)
                 args, kwargs = split_for_signature(bog)
-                self.assertDictEqual(kwargs, new_inputs_after_resolving)
-                self.assertListEqual(args, [])
-                self.assertDictEqual(bog.get_bag(), expected_returns)
+                self.assertEqual(kwargs, new_inputs_after_resolving)
+                self.assertEqual(args, tuple())
+                self.assertDictEqual(bog.return_args, expected_returns)
+
         for sig in [self.sig_func_c, self.sig_func_d, self.sig_func_e]:
             with self.subTest(sig.__str__()):
-                bog = BagOfGoodies(sig, input_args, new_inputs)
+                print(sig)
+                bog = _in_chain_bog(sig, input_args, new_inputs)
                 args, kwargs = split_for_signature(bog)
-                self.assertDictEqual(kwargs, expected_returns)
-                self.assertListEqual(args, [])
-                self.assertDictEqual(bog.get_bag(), expected_returns)
+                self.assertEqual(kwargs, expected_returns)
+                self.assertEqual(args, tuple())
+                self.assertDictEqual(bog.return_args, expected_returns)
 
     def test_passing_from_bog_with_indirect_same_var_name(self):
         previous_returns = {'x': 2}
@@ -383,18 +363,18 @@ class BogTests(unittest.TestCase):
         input_args = (previous_returns,)
         for sig in [self.sig_func_a, self.sig_func_b]:
             with self.subTest(sig.__str__()):
-                bog = BagOfGoodies(sig, input_args, new_inputs)
+                bog = _in_chain_bog(sig, input_args, new_inputs)
                 args, kwargs = split_for_signature(bog)
-                self.assertDictEqual(kwargs, new_inputs_after_resolving)
-                self.assertListEqual(args, [])
-                self.assertDictEqual(bog.get_bag(), expected_returns)
+                self.assertEqual(kwargs, new_inputs_after_resolving)
+                self.assertEqual(args, tuple())
+                self.assertDictEqual(bog.return_args, expected_returns)
         for sig in [self.sig_func_c, self.sig_func_d, self.sig_func_e]:
             with self.subTest(sig.__str__()):
-                bog = BagOfGoodies(sig, input_args, new_inputs)
+                bog = _in_chain_bog(sig, input_args, new_inputs)
                 args, kwargs = split_for_signature(bog)
-                self.assertDictEqual(kwargs, expected_returns)
-                self.assertListEqual(args, [])
-                self.assertDictEqual(bog.get_bag(), expected_returns)
+                self.assertEqual(kwargs, expected_returns)
+                self.assertEqual(args, tuple())
+                self.assertDictEqual(bog.return_args, expected_returns)
 
     def test_passing_from_bog_with_indirect_positional(self):
         previous_returns = {'y': 2}
@@ -402,29 +382,29 @@ class BogTests(unittest.TestCase):
         input_args = (previous_returns, '@y')
         for sig in [self.sig_func_a, self.sig_func_b]:
             with self.subTest(sig.__str__()):
-                bog = BagOfGoodies(sig, input_args, {})
+                bog = _in_chain_bog(sig, input_args, {})
                 args, kwargs = split_for_signature(bog)
-                self.assertDictEqual(kwargs, {})
-                self.assertListEqual(args, [2])
-                self.assertDictEqual(bog.get_bag(), expected_returns)
+                self.assertEqual(kwargs, {})
+                self.assertEqual(args, tuple([2]))
+                self.assertDictEqual(bog.return_args, expected_returns)
         for sig in [self.sig_func_d, self.sig_func_e]:
             with self.subTest(sig.__str__()):
-                bog = BagOfGoodies(sig, input_args, {})
+                bog = _in_chain_bog(sig, input_args, {})
                 args, kwargs = split_for_signature(bog)
-                self.assertDictEqual(kwargs, previous_returns)
-                self.assertListEqual(args, [2])
-                self.assertDictEqual(bog.get_bag(), expected_returns)
+                self.assertEqual(kwargs, previous_returns)
+                self.assertEqual(args, tuple([2]))
+                self.assertDictEqual(bog.return_args, expected_returns)
 
     def test_passing_from_non_bog(self):
         value = 3
         input_args = (value,)
         for sig in [self.sig_func_a, self.sig_func_b, self.sig_func_d, self.sig_func_e]:
             with self.subTest(sig.__str__()):
-                bog = BagOfGoodies(sig, input_args, {})
+                bog = _in_chain_bog(sig, input_args, {})
                 args, kwargs = split_for_signature(bog)
-                self.assertDictEqual(kwargs, {})
-                self.assertListEqual(args, [value])
-                self.assertDictEqual(bog.get_bag(), {'x': value})
+                self.assertEqual(kwargs, {})
+                self.assertEqual(args, tuple([value]))
+                self.assertDictEqual(bog.return_args, {'x': value})
 
     def test_passing_extra_kwargs(self):
         used_input = {'x': 2}
@@ -433,50 +413,50 @@ class BogTests(unittest.TestCase):
             with self.subTest(sig.__str__()):
                 bog = BagOfGoodies(sig, (), input_kwargs)
                 args, kwargs = split_for_signature(bog)
-                self.assertDictEqual(kwargs, used_input)
-                self.assertListEqual(args, [])
-                self.assertDictEqual(bog.get_bag(), input_kwargs)
+                self.assertEqual(kwargs, used_input)
+                self.assertEqual(args, tuple())
+                self.assertDictEqual(bog.return_args, input_kwargs)
         for sig in [self.sig_func_c, self.sig_func_d, self.sig_func_e]:
             with self.subTest(sig.__str__()):
                 bog = BagOfGoodies(sig, (), input_kwargs)
                 args, kwargs = split_for_signature(bog)
-                self.assertDictEqual(kwargs, input_kwargs)
-                self.assertListEqual(args, [])
-                self.assertDictEqual(bog.get_bag(), input_kwargs)
+                self.assertEqual(kwargs, input_kwargs)
+                self.assertEqual(args, tuple())
+                self.assertDictEqual(bog.return_args, input_kwargs)
 
     def test_bog_update(self):
         value = 3
         input_args = (value, )
         for sig in [self.sig_func_a, self.sig_func_b, self.sig_func_d, self.sig_func_e]:
             with self.subTest(sig.__str__()):
-                bog = BagOfGoodies(sig, input_args, {})
+                bog = _in_chain_bog(sig, input_args, {})
                 args, kwargs = split_for_signature(bog)
-                self.assertDictEqual(kwargs, {})
-                self.assertListEqual(args, [value])
-                self.assertDictEqual(bog.get_bag(), {'x': value})
+                self.assertEqual(kwargs, {})
+                self.assertEqual(args, tuple([value]))
+                self.assertDictEqual(bog.return_args, {'x': value})
                 new_value = 2
                 bog.update({'x': new_value})
                 args, kwargs = split_for_signature(bog)
-                self.assertListEqual(args, [new_value])
-                self.assertDictEqual(kwargs, {})
-                self.assertDictEqual(bog.get_bag(), {'x': new_value})
+                self.assertEqual(args, tuple([new_value]))
+                self.assertEqual(kwargs, {})
+                self.assertDictEqual(bog.return_args, {'x': new_value})
 
     def test_bog_update_var_positional(self):
         value = 3
         input_args = (1,)
         for sig in [self.sig_func_f]:
             with self.subTest(sig.__str__()):
-                bog = BagOfGoodies(sig, input_args, {'x': value})
+                bog = _in_chain_bog(sig, input_args, {'x': value})
                 args, kwargs = split_for_signature(bog)
-                self.assertDictEqual(kwargs, {'x': value})
-                self.assertListEqual(args, [1])
-                self.assertDictEqual(bog.get_bag(), {'args': (1,), 'x': value})
+                self.assertEqual(kwargs, {'x': value})
+                self.assertEqual(args, tuple([1]))
+                self.assertDictEqual(bog.return_args, {'args': (1,), 'x': value})
                 new_value = 2
                 bog.update({'x': new_value})
                 args, kwargs = split_for_signature(bog)
-                self.assertListEqual(args, [1])
-                self.assertDictEqual(kwargs, {'x': new_value})
-                self.assertDictEqual(bog.get_bag(), {'args': (1,), 'x': new_value})
+                self.assertEqual(args, tuple([1]))
+                self.assertEqual(kwargs, {'x': new_value})
+                self.assertDictEqual(bog.return_args, {'args': (1,), 'x': new_value})
 
     def test_update_masks_default(self):
         # noinspection PyUnusedLocal
@@ -489,9 +469,14 @@ class BogTests(unittest.TestCase):
                 "parameter": "converter parameter"  # initially the default value would have been used
             }
         bog.update(updates)
-        self.assertEqual(bog.get_bag(), updates)
-        self.assertEqual(bog.args, ["converter argument"])
+        self.assertEqual(bog.return_args, updates)
+        self.assertEqual(bog.args, tuple(["converter argument"]))
         self.assertEqual(bog.kwargs, {"parameter": "converter parameter"})
 
-def split_for_signature(bag):
-    return bag.args, bag.kwargs
+def _in_chain_bog(sig, args, kwargs) -> BagOfGoodies:
+    bog = BagOfGoodies(sig, args, kwargs | CHAIN_DEPTH_KWARGS)
+    bog.get_and_remove_chain_depth()
+    return bog
+
+def split_for_signature(bog):
+    return bog.args, bog.kwargs
