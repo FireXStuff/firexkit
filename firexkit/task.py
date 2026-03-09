@@ -904,9 +904,12 @@ class FireXTask(Task):
         params = sig.parameters
         for param in params.values():
             if param.name not in bound_args:
-                if param.default == param.empty and param.kind == param.VAR_POSITIONAL:
-                    # The param.default is set to param.empty in such cases, and need to be a tuple instead
-                    default_bound_args[param.name] = tuple()
+                if param.default == param.empty:
+                    if param.kind == param.VAR_POSITIONAL:
+                        # The param.default is set to param.empty in such cases, and need to be a tuple instead
+                        # FIXME: this implies something needs the unsupplied, unrequired arg from a bound context?
+                        # would be good to fix that incorrect expectation instead of filling this in.x
+                        default_bound_args[param.name] = tuple()
                 else:
                     default_bound_args[param.name] = param.default
         return default_bound_args
