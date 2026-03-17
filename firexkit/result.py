@@ -3,7 +3,7 @@ from collections import namedtuple, deque
 import weakref
 
 from pprint import pformat
-from typing import Union, Iterator, Optional, Iterable, Any
+from typing import Union, Iterator, Optional, Iterable, Any, Sequence
 
 from celery import current_app
 from celery.result import AsyncResult
@@ -15,16 +15,118 @@ from firexkit.inspect import get_task, get_active_queues, get_active, get_reserv
 from firexkit.revoke import RevokedRequests
 
 RETURN_KEYS_KEY = '__task_return_keys'
+DYNAMIC_RETURN = '__DYNAMIC_RETURN__'
 _TASK_PRE_RUN_KEY = 'TASK_PRE_RUN'
 _TASK_POST_RUN_KEY = 'TASK_POST_RUN'
-
 
 RUN_RESULTS_NAME = 'chain_results'
 RUN_UNSUCCESSFUL_NAME = 'unsuccessful_services'
 
 ResultId = Union[AsyncResult, str]
 
+
 logger = get_task_logger(__name__)
+
+
+class ReturnsCodingException(Exception):
+    pass
+
+from celery.local import PromiseProxy
+
+
+class FireXResults:
+
+    @staticmethod
+    def is_prev_task_result(value: Any) -> bool:
+        if (
+            isinstance(value, dict)
+            and (chain_depth := value.get('chain_depth'))
+        ):
+            return isinstance(chain_depth, int) and chain_depth > 1
+        return False
+
+    @classmethod
+    def task_returns_to_tuple(
+        cls,
+        return_keys: tuple[str, ...],
+        result: Any,
+    ) -> tuple[Any, ...]:
+        if not return_keys and result in [ None, {} ]:
+            #FIXME: should print error on no returns keys with returns.
+            results_tuple = tuple()
+        elif (
+            # handle named tuples, they are a result, not all the results
+            (
+                type(result) != tuple
+                and isinstance(result, tuple)
+            )
+            # handle case of singular result
+            or not isinstance(result, tuple)
+        ):
+            results_tuple = (result,)
+        else:
+            results_tuple = result
+
+        return results_tuple
+
+    @classmethod
+    def convert_result_tuple_to_dict(
+        cls,
+        return_keys: tuple[str, ...],
+        results_tuple: tuple[Any, ...],
+    ) -> dict[str, Any]:
+
+        if len(return_keys) != len(results_tuple):
+            raise ReturnsCodingException(
+                f'Expected return keys {return_keys} (length {len(return_keys)}) in service results, '
+                f'but found length: {len(results_tuple)}: {results_tuple}'
+            )
+
+        # time to process the multiple return values
+        flat_results : dict[str, Any] = {}
+        for k, v in zip(return_keys, results_tuple):
+            if k == DYNAMIC_RETURN:
+                if v:
+                    if not isinstance(v, dict):
+                        raise TypeError(
+                            f'The value of the dynamic returns {k} must be a dictionary.'
+                            f'Current return value {v} is of type {type(v).__name__}'
+                        )
+                    flat_results.update(v)
+            else:
+                flat_results[k] = v
+
+        # Inject into the results the RETURN_KEYS
+        if flat_results:
+            flat_results[RETURN_KEYS_KEY] = tuple(flat_results.keys())
+        return flat_results
+
+    @staticmethod
+    def returns(*args):
+        """ The decorator is used to allow us to specify the keys of the
+            dict that the task returns.
+
+            This is used only to signal to the user the inputs and outputs
+            of a task, and deduce what arguments are required for a chain.
+        """
+        if not args:
+            raise ReturnsCodingException("@returns cannot be empty")
+        if len(args) != len(set(args)):
+            raise ReturnsCodingException("@returns cannot contain duplicate keys")
+
+        def decorator(func):
+            if type(func) is PromiseProxy:
+                raise ReturnsCodingException("@returns must be applied to a function (before @app.task)")
+
+            # Store the arguments of the decorator as a function attribute
+            undecorated = func
+            while ( wrapped := getattr(undecorated, '__wrapped__', None) ):
+                undecorated = wrapped
+            undecorated._decorated_return_keys = args
+
+            return func
+
+        return decorator
 
 
 def get_task_info_from_result(result, key: Optional[str]=None):
@@ -107,13 +209,12 @@ def mark_task_postrun(task, task_id, **_kwargs):
 
 
 def get_task_prerun_info(result):
-    prerun = False
     try:
-        prerun = get_task_info_from_result(result, key=_TASK_PRE_RUN_KEY)
+        return get_task_info_from_result(result, key=_TASK_PRE_RUN_KEY)
     except AttributeError:
-        logger.info(f'Broker doesn\'t support prerun info; probably a dummy broker. Defaulting to prerun=False')
+        logger.info('Broker does not support prerun info; probably a dummy broker. Defaulting to prerun=False')
 
-    return prerun
+    return False
 
 
 def get_task_postrun_info(result):
@@ -582,7 +683,7 @@ class MultipleFailuresException(ChainInterruptedException):
         return self.MESSAGE % self.task_ids
 
 
-def get_task_results(results: dict) -> dict:
+def _get_task_results(results: dict) -> dict:
     try:
         return_keys = results[RETURN_KEYS_KEY]
     except KeyError:
@@ -634,16 +735,15 @@ def _get_all_results(result: AsyncResult,
 
     if ret:
         # Returns from the parent win
-        all_results.update(get_task_results(ret))
+        all_results.update(_get_task_results(ret))
 
 
 def results2tuple(results: dict, return_keys: Union[str, tuple]) -> tuple:
-    from firexkit.task import FireXTask
     if isinstance(return_keys, str):
         return_keys = tuple([return_keys])
     results_to_return = []
     for key in return_keys:
-        if key == FireXTask.DYNAMIC_RETURN:
+        if key == DYNAMIC_RETURN:
             results_to_return.append(results)
         else:
             results_to_return.append(results.get(key))
@@ -703,10 +803,9 @@ def get_results(result: AsyncResult,
                      return_keys_only=return_keys_only,
                      merge_children_results=merge_children_results)
 
-    from firexkit.task import FireXTask
     from firexkit.bag_of_goodies import AutoInjectRegistry
     all_results.pop(AutoInjectRegistry.AUTO_IN_REG_ABOG_KEY, None)
-    if not return_keys or return_keys == FireXTask.DYNAMIC_RETURN or return_keys == (FireXTask.DYNAMIC_RETURN,):
+    if not return_keys or return_keys == DYNAMIC_RETURN or return_keys == (DYNAMIC_RETURN,):
         return all_results
     else:
         return results2tuple(all_results, return_keys)
