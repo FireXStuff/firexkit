@@ -611,7 +611,7 @@ class FireXTask(Task):
         extra_events: Optional[dict]=None,
     ) -> dict[str, Any]:
 
-        post_run_return_args = self.context.bog.get_supplied_infra_and_defaulted_args() | result
+        post_run_return_args = self.context.bog.all_supplied_args() | result
 
         # run any post converters attached to this task
         converted_return_args = ConverterRegister.task_convert(

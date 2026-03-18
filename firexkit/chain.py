@@ -119,7 +119,7 @@ class SignatureX(Signature):
                     undefined_indirect)
 
             prev_task_return_args = dict(
-                task_bog.get_supplied_infra_and_defaulted_args()
+                task_bog.all_supplied_args()
                 | {
                     rk: True # we ignore falsy values when resolving?
                     for rk in task_obj.return_keys

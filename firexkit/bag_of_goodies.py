@@ -351,10 +351,6 @@ class BagOfGoodies:
     def return_args(self):
         return self.all_supplied_args()
 
-    def get_supplied_infra_and_defaulted_args(self) -> types.MappingProxyType[str, Any]:
-        # formerly "return_args"
-        return self.get_unsupplied_default_args() | self.all_supplied_args()
-
     def init_auto_inject_registry(self, auto_inject_args: list['AutoInjectSpec']):
         # expected to only be called by the root task.
         assert AutoInjectRegistry.AUTO_IN_REG_ABOG_KEY not in self.unaccepted_args, 'AutoInjectRegistry already initialized'
@@ -374,7 +370,7 @@ class BagOfGoodies:
         return {RETURN_KEYS_KEY, AutoInjectRegistry.AUTO_IN_REG_ABOG_KEY}
 
     def has_auto_reg(self) -> bool:
-        return AutoInjectRegistry.AUTO_IN_REG_ABOG_KEY in self.get_supplied_infra_and_defaulted_args()
+        return AutoInjectRegistry.AUTO_IN_REG_ABOG_KEY in self.all_supplied_args()
 
 
 def _validate_var_pos_arg(var_pos_name: str, var_pos_value) -> tuple[Any, ...]:
