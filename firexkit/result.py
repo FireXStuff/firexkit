@@ -22,8 +22,6 @@ _TASK_POST_RUN_KEY = 'TASK_POST_RUN'
 RUN_RESULTS_NAME = 'chain_results'
 RUN_UNSUCCESSFUL_NAME = 'unsuccessful_services'
 
-ResultId = Union[AsyncResult, str]
-
 
 logger = get_task_logger(__name__)
 
@@ -129,7 +127,10 @@ class FireXResults:
         return decorator
 
 
-def get_task_info_from_result(result, key: Optional[str]=None):
+def _get_task_info_from_result(
+    result: Union[str, AsyncResult],
+    key: Optional[str]=None,
+):
     try:
         backend = result.app.backend
     except AttributeError:
@@ -147,18 +148,18 @@ def get_task_info_from_result(result, key: Optional[str]=None):
     return info
 
 
-def get_task_name_from_result(result):
+def get_task_name_from_result(result) -> str:
     try:
-        return get_task_info_from_result(result=result, key='name')
+        return _get_task_info_from_result(result=result, key='name')
     except AttributeError:
-        return get_task_info_from_result(result=result)
+        return _get_task_info_from_result(result=result)
 
 
-def get_task_queue_from_result(result):
+def _get_task_queue_from_result(result: AsyncResult):
     queue = ''
     try:
         while not queue and result:
-            queue = get_task_info_from_result(result=result, key='queue')
+            queue = _get_task_info_from_result(result=result, key='queue')
             #  Try to get queue of parent tasks in the same chain, if current item hasn't been scheduled yet
             result = result.parent
     except AttributeError:
@@ -167,18 +168,21 @@ def get_task_queue_from_result(result):
     return queue
 
 
-def get_tasks_names_from_results(results):
+def get_tasks_names_from_results(results: Union[Sequence[str], Sequence[AsyncResult]]):
     return [get_result_logging_name(r) for r in results]
 
 
-def get_result_logging_name(result: AsyncResult, name=None):
+def get_result_logging_name(
+    result: Union[str, AsyncResult],
+    name=None,
+):
     if name is None:
         name = get_task_name_from_result(result)
     return '%s[%s]' % (name, result)
 
 
 @before_task_publish.connect
-def populate_task_info(sender, declare, headers, **_kwargs):
+def _populate_task_info(sender, declare, headers, **_kwargs):
     task_info = {'name': sender}
     try:
         task_info.update({'queue': declare[0].name})
@@ -189,8 +193,8 @@ def populate_task_info(sender, declare, headers, **_kwargs):
 
 
 @task_prerun.connect
-def update_task_name(sender, task_id, *_args, **_kwargs):
-    # Although the name was populated in populate_task_info before_task_publish, the name
+def _update_task_name(sender, task_id, *_args, **_kwargs):
+    # Although the name was populated in _populate_task_info before_task_publish, the name
     # can be inaccurate if it was a plugin. We can only over-write it with the accurate name
     # at task_prerun.
     callable_func = current_app.backend.client.hset
@@ -210,21 +214,19 @@ def mark_task_postrun(task, task_id, **_kwargs):
 
 def get_task_prerun_info(result):
     try:
-        return get_task_info_from_result(result, key=_TASK_PRE_RUN_KEY)
+        return _get_task_info_from_result(result, key=_TASK_PRE_RUN_KEY)
     except AttributeError:
         logger.info('Broker does not support prerun info; probably a dummy broker. Defaulting to prerun=False')
 
     return False
 
 
-def get_task_postrun_info(result):
-    postrun = True
+def get_task_postrun_info(result) -> bool:
     try:
-        postrun = get_task_info_from_result(result, key=_TASK_POST_RUN_KEY)
+        return _get_task_info_from_result(result, key=_TASK_POST_RUN_KEY)
     except AttributeError:
         logger.info(f'Broker doesn\'t support postrun info; probably a dummy broker. Defaulting to postrun=True')
-
-    return postrun
+    return True
 
 
 def mark_queues_ready(*queue_names: str):
@@ -264,7 +266,9 @@ def find_all_unsuccessful(result: AsyncResult, ignore_non_ready=False, depth=0) 
     if children:
         depth += 1
         for child in children:
-            failures.update(find_all_unsuccessful(child, ignore_non_ready, depth))
+            failures.update(
+                find_all_unsuccessful(child, ignore_non_ready, depth)
+            )
     return failures
 
 
@@ -399,7 +403,7 @@ def _is_worker_alive(result: AsyncResult, retries=1):
 
         elif state == PENDING or state == RETRY:
             # Check if task queue is alive
-            task_queue = get_task_queue_from_result(result)
+            task_queue = _get_task_queue_from_result(result)
             if not task_queue:
                 logger.debug(f'Cannot get task queue for {task_name}; assuming task is alive.')
                 return True
@@ -434,7 +438,7 @@ def _is_worker_alive(result: AsyncResult, retries=1):
 WaitLoopCallBack = namedtuple('WaitLoopCallBack', ['func', 'frequency', 'kwargs'])
 
 
-def send_block_task_states_to_caller_task(func):
+def _send_block_task_states_to_caller_task(func):
     def wrapper(*args, **kwargs):
         caller_task = kwargs.pop("caller_task", None)
         if caller_task and not caller_task.request.called_directly:
@@ -476,15 +480,17 @@ def wait_for_running_tasks_from_results(results, max_wait=2*60, sleep_between_it
                      f'{get_tasks_names_from_results(running_tasks)}')
 
 
-@send_block_task_states_to_caller_task
-def wait_on_async_results(results,
-                          max_wait=None,
-                          callbacks: Iterator[WaitLoopCallBack] = tuple(),
-                          sleep_between_iterations=0.05,
-                          check_task_worker_frequency=600,
-                          fail_on_worker_failures=3,
-                          log_msg=True,
-                          **_kwargs):
+@_send_block_task_states_to_caller_task
+def wait_on_async_results(
+    results: Union[AsyncResult, list[AsyncResult], None], # FIXME: crazy type sig
+    max_wait=None,
+    callbacks: Iterable[WaitLoopCallBack] = tuple(),
+    sleep_between_iterations=0.05,
+    check_task_worker_frequency=600,
+    fail_on_worker_failures=3,
+    log_msg=True,
+    **_kwargs,
+):
     if not results:
         return
 
@@ -576,7 +582,12 @@ def wait_on_async_results(results,
         raise multi_exception
 
 
-def wait_on_async_results_and_maybe_raise(results, raise_exception_on_failure=True, caller_task=None, **kwargs):
+def wait_on_async_results_and_maybe_raise(
+    results: Union[AsyncResult, list[AsyncResult], None], # FIXME: crazy type sig,
+    raise_exception_on_failure=True,
+    caller_task=None,
+    **kwargs,
+):
     try:
         wait_on_async_results(results=results, caller_task=caller_task, **kwargs)
     except ChainInterruptedException:
@@ -692,7 +703,7 @@ def _get_task_results(results: dict) -> dict:
         return {k: results[k] for k in return_keys if k in results} if return_keys else {}
 
 
-def get_tasks_inputs_from_result(results: dict) -> dict:
+def _get_tasks_inputs_from_result(results: dict) -> dict:
     # Returns a dict of key-value pairs of inputs passed down in the async result object
     try:
         return_keys = list(results[RETURN_KEYS_KEY])
@@ -700,7 +711,11 @@ def get_tasks_inputs_from_result(results: dict) -> dict:
         return results
     else:
         return_keys.append(RETURN_KEYS_KEY)
-        return {k: v for k, v in results.items() if k not in return_keys}
+        return {
+            k: v
+            for k, v in results.items()
+            if k not in return_keys
+        }
 
 
 def _get_all_results(result: AsyncResult,
@@ -719,7 +734,7 @@ def _get_all_results(result: AsyncResult,
 
     if not return_keys_only and ret:
         # Inputs from child win, below
-        all_results.update(get_tasks_inputs_from_result(ret))
+        all_results.update(_get_tasks_inputs_from_result(ret))
 
     children = getattr(result, 'children', []) or [] if merge_children_results else []
 
@@ -738,7 +753,7 @@ def _get_all_results(result: AsyncResult,
         all_results.update(_get_task_results(ret))
 
 
-def results2tuple(results: dict, return_keys: Union[str, tuple]) -> tuple:
+def _results2tuple(results: dict, return_keys: Union[str, tuple]) -> tuple:
     if isinstance(return_keys, str):
         return_keys = tuple([return_keys])
     results_to_return = []
@@ -750,12 +765,14 @@ def results2tuple(results: dict, return_keys: Union[str, tuple]) -> tuple:
     return tuple(results_to_return)
 
 
-def get_results(result: AsyncResult,
-                return_keys=(),
-                parent_id: str = None,
-                return_keys_only=True,
-                merge_children_results=False,
-                extract_from_parents=True):
+def get_results(
+    result: AsyncResult,
+    return_keys=(),
+    parent_id: Optional[str]=None,
+    return_keys_only=True,
+    merge_children_results=False,
+    extract_from_parents=True,
+) -> dict[str, Any]:
     """
     Extract and return task results
 
@@ -805,10 +822,14 @@ def get_results(result: AsyncResult,
 
     from firexkit.bag_of_goodies import AutoInjectRegistry
     all_results.pop(AutoInjectRegistry.AUTO_IN_REG_ABOG_KEY, None)
-    if not return_keys or return_keys == DYNAMIC_RETURN or return_keys == (DYNAMIC_RETURN,):
+    if (
+        not return_keys
+        or return_keys == DYNAMIC_RETURN
+        or return_keys == (DYNAMIC_RETURN,)
+    ):
         return all_results
     else:
-        return results2tuple(all_results, return_keys)
+        return _results2tuple(all_results, return_keys)
 
 
 def get_results_with_default(result: AsyncResult,
@@ -904,92 +925,77 @@ def last_causing_chain_interrupted_exception(ex):
     return e
 
 
-def climb_up_until_null_parent(result: AsyncResult) -> AsyncResult:
-    r = result
-    while r.parent is not None:
-        r = r.parent
-    return r
+def _get_all_descendants(
+    node: AsyncResult,
+    skip_subtree_nodes: set[str],
+) -> set[AsyncResult]:
 
-
-def get_result_id(r: ResultId) -> str:
-    """Return the string id of r if it was an AsyncResult, otherwise returns r"""
-    return r.id if isinstance(r, AsyncResult) else r
-
-
-def get_all_children(node, timeout=180, skip_subtree_nodes: Optional[list[ResultId]] = None) -> Iterator[AsyncResult]:
-    """Iterate the children of node, skipping any nodes found in skip_subtree_nodes"""
     stack = deque([node])
-    timeout_time = time.monotonic() + timeout
+    result_ars = set()
     while stack:
         node = stack.popleft()
-        node_name = get_result_logging_name(node)
-        if skip_subtree_nodes and get_result_id(node) in skip_subtree_nodes:
-            continue
-        yield node
-
-        while time.monotonic() < timeout_time and not node.ready():
-            logger.debug(f'{node_name} state is still {node.state}...sleeping and retrying')
-            time.sleep(0.5)
-        stack.extend(child for child in node.children or [])
+        if node.id not in skip_subtree_nodes:
+            # we waited already for readiness, so just add them here.
+            result_ars.add(node)
+            stack.extend(c for c in node.children or [])
+    return result_ars
 
 
-def forget_single_async_result(r: AsyncResult):
-    """Forget the result of this task
-
-    AsyncResult.forget() also forgets the parent (which is not always desirable), so, we had to implement our own
-    """
-    logger.debug(f'Forgetting result: {get_result_logging_name(r)}')
-    r._cache = None
-    r.backend.forget(r.id)
-
-
-def forget_subtree_results(head_node_result: AsyncResult,
-                           skip_subtree_nodes: Optional[Iterable[ResultId]] = None,
-                           do_not_forget_nodes: Optional[Iterable[ResultId]] = None) -> None:
+def _forget_subtree_results(
+    head_node_result: AsyncResult,
+    skip_subtree_nodes: set[str],
+    do_not_forget_nodes: set[str],
+):
     """Forget results of the subtree rooted at head_node_result, while skipping subtrees in skip_subtree_nodes,
     as well as nodes in do_not_forget_nodes
     """
 
-    # Must get all the elements from the get_all_children() generator first!
+    # Must get all the elements from the _get_all_descendants() generator first!
     # We can't process the forgetting of one element at a time per iteration because the parent/children relationship
     # might be lost once we forget a node
     #
-    subtree_nodes = set(get_all_children(head_node_result, skip_subtree_nodes=skip_subtree_nodes))
-
-    do_not_forget_nodes_ids = {get_result_id(n) for n in do_not_forget_nodes} if do_not_forget_nodes else {}
-
-    nodes_to_forget = {n for n in subtree_nodes if n.id not in do_not_forget_nodes_ids}
+    subtree_ars = _get_all_descendants(head_node_result, skip_subtree_nodes)
+    nodes_to_forget = {n for n in subtree_ars if n.id not in do_not_forget_nodes}
 
     msg = [f'Forgetting {len(nodes_to_forget)} results for tree root {get_result_logging_name(head_node_result)}']
     if skip_subtree_nodes:
         msg += [f'Skipping subtrees: {[get_result_logging_name(r) for r in skip_subtree_nodes]}']
-    if do_not_forget_nodes_ids:
-        msg += [f'Skipping nodes: {[get_result_logging_name(r) for r in do_not_forget_nodes_ids]}']
+    if do_not_forget_nodes:
+        msg += [f'Skipping nodes: {[get_result_logging_name(r) for r in do_not_forget_nodes]}']
     logger.debug('\n'.join(msg))
 
-    for node in nodes_to_forget:
-        forget_single_async_result(node)
+    for ar in nodes_to_forget:
+        logger.debug(f'Forgetting result: {get_result_logging_name(ar)}')
+        ar._cache = None
+        ar.backend.forget(ar.id)
 
 
-def forget_chain_results(result: AsyncResult,
-                         forget_chain_head_node_result: bool = True,
-                         do_not_forget_nodes: Optional[Iterable[AsyncResult]] = None,
-                         **kwargs) -> None:
+def forget_chain_results(
+    result: AsyncResult,
+    do_not_forget_nodes: Optional[Iterable[str]],
+    skip_subtree_nodes: Optional[Iterable[str]],
+):
     """Forget results of the tree rooted at the "chain-head" of result, while skipping subtrees in skip_subtree_nodes,
     as well as nodes in do_not_forget_nodes.
 
-    If forget_chain_head_node_result is False (default True), do not forget the head of the result chain
     """
-    _do_not_forget_nodes = set()
+
+    wait_on_async_results_and_maybe_raise(
+        result,
+        max_wait=180,
+        raise_exception_on_failure=False,
+    )
 
     # Get the head of the result chain, i.e., in chain A|B|C, if result is C, find A
-    head_node_result = climb_up_until_null_parent(result)
+    chain_ars: list[AsyncResult] = [result]
+    chain_ar = result
+    while chain_ar.parent is not None:
+        chain_ar = chain_ar.parent
+        chain_ars.append(chain_ar)
 
-    if forget_chain_head_node_result is False:
-        _do_not_forget_nodes.add(head_node_result)
-    if do_not_forget_nodes:
-        _do_not_forget_nodes.update(do_not_forget_nodes)
-
-    forget_subtree_results(head_node_result=head_node_result,
-                           do_not_forget_nodes=_do_not_forget_nodes,
-                           **kwargs)
+    for ar in chain_ars:
+        _forget_subtree_results(
+            head_node_result=ar,
+            do_not_forget_nodes=set(do_not_forget_nodes or []),
+            skip_subtree_nodes=set(skip_subtree_nodes or []),
+        )

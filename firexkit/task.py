@@ -42,7 +42,7 @@ from firexkit.resources import get_firex_css_filepath, get_firex_logo_filepath
 from firexkit.firexkit_common import JINJA_ENV
 from firexkit.chain import InjectArgs, SignatureX
 
-
+ADDITIONAL_CHILDREN_KEY = 'additional_children'
 REPLACEMENT_TASK_NAME_POSTFIX = '_orig'
 
 REDIS_DB_KEY_FOR_RESULTS_WITH_REPORTS = 'FIREX_RESULTS_WITH_REPORTS'
@@ -311,6 +311,10 @@ class FireXTask(Task):
         self._from_plugin = False
         self.context : TaskContext = TaskContext(BagOfGoodies(self.sig, tuple(), {}))
         self.name : str
+
+        # when this task is overriden, this is the most immediately preceding overridden task,
+        # or None when the current task is not an override.
+        self.orig: Optional[FireXTask] = None
 
     @property
     def return_keys(self) -> tuple[str, ...]:
@@ -941,74 +945,63 @@ class FireXTask(Task):
     def wait_for_children(self, pending_only=True, **kwargs):
         """Wait for all enqueued child tasks to run and complete"""
         child_results = self.pending_enqueued_children if pending_only else self.enqueued_children
-        self.wait_for_specific_children(child_results=child_results, **kwargs)
+        self.wait_for_specific_children(
+            child_results=child_results,
+            **kwargs,
+        )
 
-    def forget_child_result(self,
-                            child_result: AsyncResult,
-                            do_not_forget_report_nodes: bool = True,
-                            do_not_forget_enqueue_once_nodes: bool = True,
-                            do_not_forget_cache_enabled_tasks_results: bool = True,
-                            **kwargs):
+    def _forget_child_result(self, child_result: AsyncResult):
 
         """Forget results of the tree rooted at the "chain-head" of child_result, while skipping subtrees in
         skip_subtree_nodes, as well as nodes in do_not_forget_nodes.
 
-        If do_not_forget_report_nodes is True (default), do not forget report nodes (e.g. nodes decorated with @email)
-
-        If do_not_forget_enqueue_once_nodes is True (default), do not forget subtrees rooted at nodes that were enqueued
-        with enqueue_once
-
-        If do_not_forget_cache_enabled_tasks_results is True (default), do not forget subtrees rooted at nodes that belong to
-        services with cached=True
         """
         logger.debug('Forgetting results')
 
         skip_subtree_nodes: set[str] = set()
 
-        if do_not_forget_enqueue_once_nodes:
-            enqueue_once_subtree_nodes = get_current_enqueue_child_once_uids(self.backend)
-            if enqueue_once_subtree_nodes:
-                skip_subtree_nodes.update(enqueue_once_subtree_nodes)
-                logger.debug(f'Enqueue once subtree nodes: {enqueue_once_subtree_nodes}')
+        enqueue_once_subtree_nodes = get_current_enqueue_child_once_uids(self.backend)
+        if enqueue_once_subtree_nodes:
+            skip_subtree_nodes.update(enqueue_once_subtree_nodes)
+            logger.debug(f'Enqueue once subtree nodes: {enqueue_once_subtree_nodes}')
 
-        if do_not_forget_cache_enabled_tasks_results:
-            cache_enabled_subtree_nodes = get_current_cache_enabled_uids(self.backend)
-            if cache_enabled_subtree_nodes:
-                skip_subtree_nodes.update(cache_enabled_subtree_nodes)
-                logger.debug(f'Cache-enabled  subtree nodes: {cache_enabled_subtree_nodes}')
+        cache_enabled_subtree_nodes = get_current_cache_enabled_uids(self.backend)
+        if cache_enabled_subtree_nodes:
+            skip_subtree_nodes.update(cache_enabled_subtree_nodes)
+            logger.debug(f'Cache-enabled  subtree nodes: {cache_enabled_subtree_nodes}')
 
-        report_nodes = None
-        if do_not_forget_report_nodes:
-            report_nodes = get_current_reports_uids(self.backend)
-            if report_nodes:
-                logger.debug(f'Report nodes: {report_nodes}')
+        report_nodes = get_current_reports_uids(self.backend)
+        if report_nodes:
+            logger.debug(f'Report nodes: {report_nodes}')
 
-        forget_chain_results(child_result,
-                             skip_subtree_nodes=skip_subtree_nodes,
-                             do_not_forget_nodes=report_nodes,
-                             **kwargs)
+        forget_chain_results(
+            child_result,
+            skip_subtree_nodes=skip_subtree_nodes,
+            do_not_forget_nodes=report_nodes,
+        )
         # Since we forget the child, we need to also remove it from the list of enqueued_children
         self._remove_enqueued_child(child_result)
 
-    def forget_specific_children_results(self, child_results: list[AsyncResult], **kwargs):
+    def forget_specific_children_results(self, child_results: list[AsyncResult]):
         """Forget results for the explicitly provided child_results"""
         for child in child_results:
-            self.forget_child_result(child, **kwargs)
+            self._forget_child_result(child)
 
-    def forget_enqueued_children_results(self, **kwargs):
-        """Forget results for the enqueued children of current task"""
-        self.forget_specific_children_results(self.enqueued_children, **kwargs)
-
-    def wait_for_specific_children(self, child_results, forget: bool = False, **kwargs):
+    def wait_for_specific_children(self, child_results, forget: bool=False, **kwargs):
         """Wait for the explicitly provided child_results to run and complete"""
         if isinstance(child_results, AsyncResult):
             child_results = [child_results]
         if child_results:
             logger.debug('Waiting for enqueued children: %r' % get_tasks_names_from_results(child_results))
             try:
-                wait_on_async_results_and_maybe_raise(child_results, caller_task=self, **kwargs)
+                wait_on_async_results_and_maybe_raise(
+                    child_results,
+                    caller_task=self,
+                    **kwargs,
+                )
             finally:
-                [self._update_child_state(child_result, self._UNBLOCKED) for child_result in child_results]
+                for r in child_results:
+                    self._update_child_state(r, self._UNBLOCKED)
                 if forget:
                     self.forget_specific_children_results(child_results)
 
@@ -1041,7 +1034,10 @@ class FireXTask(Task):
         if block:
             try:
                 wait_on_async_results_and_maybe_raise(
-                    results=child_result, caller_task=self, **kwargs)
+                    results=child_result,
+                    caller_task=self,
+                    **kwargs,
+                )
             finally:
                 if add_to_enqueued_children:
                     self._update_child_state(child_result, self._UNBLOCKED)
@@ -1221,6 +1217,9 @@ class FireXTask(Task):
             wait_on_async_results_and_maybe_raise(results=result, caller_task=self, **kwargs)
         return result
 
+    def _send_flame_additional_child(self, additional_child_uuid):
+        self.send_firex_event_raw({ADDITIONAL_CHILDREN_KEY: [additional_child_uuid]})
+
     def enqueue_child_once_and_extract(self,
                                        *args,
                                        enqueue_once_key: str,
@@ -1239,8 +1238,14 @@ class FireXTask(Task):
                                                extract_from_parents=False,
                                                **kwargs)
 
-    def enqueue_in_parallel(self, chains, max_parallel_chains=15, wait_for_completion=True,
-                            raise_exception_on_failure=False, **kwargs):
+    def enqueue_in_parallel(
+        self,
+        chains: Sequence[SignatureX],
+        max_parallel_chains=15,
+        wait_for_completion=True,
+        raise_exception_on_failure=False,
+        **kwargs,
+    ) -> list[AsyncResult]:
         """ This method executes the provided list of Signatures/Chains in parallel
         and returns the associated list of "async_result" objects.
         The results are returned in the same order as the input Signatures/Chains."""
@@ -1249,13 +1254,16 @@ class FireXTask(Task):
         for c in chains:
             if len(scheduled) >= max_parallel_chains:
                 # Reach the max allowed parallel chains, wait for one to complete before scheduling the next one.
-                async_res = next(wait_for_any_results(scheduled, raise_exception_on_failure=raise_exception_on_failure))
+                async_res = next(
+                    wait_for_any_results(scheduled, raise_exception_on_failure=raise_exception_on_failure)
+                )
                 scheduled.remove(async_res)
             # Schedule the next child
             logger.debug(f'Enqueueing: {c.get_label()}')
             promise = self.enqueue_child(c, **kwargs)
             scheduled.append(promise)
             promises.append(promise)
+
         if wait_for_completion or raise_exception_on_failure:
             # Wait for all children to complete
             self.wait_for_specific_children(promises, raise_exception_on_failure=raise_exception_on_failure)
@@ -1270,7 +1278,6 @@ class FireXTask(Task):
         if inject_args:
             args_to_inject.update(inject_args)
         if args_to_inject:
-            from firexkit.chain import InjectArgs
             chain = InjectArgs(**args_to_inject) | chain
         logger.debug(f'Enqueuing {task_spec}')
         self.enqueue_child(chain, **enqueue_opts)

@@ -8,8 +8,15 @@ from celery.utils.log import get_task_logger
 logger = get_task_logger(__name__)
 
 
-def inspect_with_retry(inspect_retry_timeout=30, inspect_method=None, retry_if_None_returned=True,
-                       celery_app: Union[Celery, Proxy]=current_app, method_args: Iterable = None, verbose=False, **inspect_opts):
+def inspect_with_retry(
+    inspect_retry_timeout=30,
+    inspect_method=None,
+    retry_if_None_returned=True,
+    celery_app: Union[Celery, Proxy]=current_app,
+    method_args: Iterable = None,
+    verbose=False,
+    **inspect_opts,
+):
 
     inspect_retry_timeout = inspect_retry_timeout if inspect_retry_timeout else 0
     timeout_time = time.monotonic() + inspect_retry_timeout
